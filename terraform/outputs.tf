@@ -1,0 +1,82 @@
+output "aws_region" {
+  description = "Region containing the deployed resources"
+  value       = local.region
+}
+
+output "app_url" {
+  description = "Access your app here"
+  value       = var.custom_domain != "" ? "https://${var.custom_domain}" : "https://${aws_cloudfront_distribution.main.domain_name}"
+}
+
+output "api_url" {
+  description = "API Gateway endpoint"
+  value       = aws_api_gateway_stage.prod.invoke_url
+}
+
+output "products_table_name" {
+  description = "DynamoDB Products Table (for data migration)"
+  value       = aws_dynamodb_table.products.name
+}
+
+output "agentcore_ecr_repo_uri" {
+  description = "ECR repository URI for AgentCore image"
+  value       = aws_ecr_repository.agentcore.repository_url
+}
+
+output "agentcore_ecr_repo_name" {
+  description = "ECR repository name for AgentCore"
+  value       = aws_ecr_repository.agentcore.name
+}
+
+output "agentcore_execution_role_arn" {
+  description = "IAM role ARN for AgentCore Runtime"
+  value       = aws_iam_role.agentcore_execution.arn
+}
+
+output "agentcore_runtime_arn" {
+  description = "AgentCore Runtime ARN"
+  value       = aws_bedrockagentcore_agent_runtime.main.agent_runtime_arn
+}
+
+output "agentcore_runtime_id" {
+  description = "AgentCore Runtime ID"
+  value       = aws_bedrockagentcore_agent_runtime.main.agent_runtime_id
+}
+
+output "agentcore_build_project_name" {
+  description = "CodeBuild project name for AgentCore"
+  value       = aws_codebuild_project.agentcore_image.name
+}
+
+output "frontend_bucket" {
+  description = "S3 bucket for frontend deployment"
+  value       = aws_s3_bucket.frontend.id
+}
+
+output "cloudfront_distribution_id" {
+  description = "CloudFront distribution ID (for cache invalidation)"
+  value       = aws_cloudfront_distribution.main.id
+}
+
+# -----------------------------------------------------------
+# Cognito Outputs
+# -----------------------------------------------------------
+
+output "cognito_user_pool_id" {
+  description = "Cognito User Pool ID"
+  value       = aws_cognito_user_pool.main.id
+}
+
+output "cognito_user_pool_client_id" {
+  description = "Cognito User Pool Client ID (frontend)"
+  value       = aws_cognito_user_pool_client.frontend.id
+}
+
+output "frontend_env_config" {
+  description = "Environment variables for frontend .env file"
+  value       = <<-EOT
+    VITE_COGNITO_USER_POOL_ID=${aws_cognito_user_pool.main.id}
+    VITE_COGNITO_CLIENT_ID=${aws_cognito_user_pool_client.frontend.id}
+    VITE_API_URL=${var.custom_domain != "" ? "https://${var.custom_domain}/api" : "https://${aws_cloudfront_distribution.main.domain_name}/api"}
+  EOT
+}

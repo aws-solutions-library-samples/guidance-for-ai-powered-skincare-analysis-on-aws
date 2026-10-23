@@ -1,0 +1,7 @@
+# Optional local overrides. Copy to terraform.tfvars and fill in your values.
+# Deployment scripts choose region from AWS_REGION or your AWS CLI profile.
+
+# Custom domain (certificate must be in us-east-1)
+# custom_domain       = "beauty.example.com"
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."
+# route53_zone_id     = "Z..."

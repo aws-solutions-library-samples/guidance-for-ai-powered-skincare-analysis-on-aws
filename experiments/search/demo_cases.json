@@ -1,0 +1,204 @@
+{
+  "judgment_provenance": "Assistant-authored engineering fixtures for fictional products; fixed before running experiments; not expert or customer judgments",
+  "limitations": [
+    "This is a small synthetic engineering set, not clinical evidence or a representative customer sample.",
+    "Ingredient targets are manually supplied to isolate retrieval from upstream agent behavior.",
+    "Grades express the stated fictional query preferences; they do not establish skincare efficacy.",
+    "The dev/test split exercises the workflow, but shares a tiny product catalog and related intents.",
+    "Customer decisions require independent reviewers, representative profiles, and a frozen customer test set."
+  ],
+  "cases": [
+    {
+      "id": "dev-cleanser-hydration", "split": "dev", "category": "Cleanser",
+      "profile": {"skin_type": "Dry", "concerns": ["dryness"], "goal": "hydrating cream cleanser"},
+      "text": "Dry skin. Find a hydrating cream cleanser with squalane, glycerin and panthenol, costing at most GBP 15.",
+      "preferred_ingredients": ["squalane", "glycerin", "panthenol"],
+      "max_price": 15, "currency": "GBP", "tags": ["budget", "multiple_ingredients"],
+      "grades": {"AquaVeil Hydrating Cream Cleanser": 3, "PureBase Gentle Foam Cleanser": 2, "NuCalm Soothing Cleanser": 2, "DermaSoft Micellar Gel Cleanser": 1}
+    },
+    {
+      "id": "dev-cleanser-oil", "split": "dev", "category": "Cleanser",
+      "profile": {"skin_type": "Oily", "concerns": ["oily feel"], "goal": "oil-control cleanser"},
+      "text": "Oily skin. Find an oil-control cleanser containing salicylic acid, preferably also niacinamide and zinc pca. Exclude tea tree oil.",
+      "preferred_ingredients": ["salicylic acid", "niacinamide", "zinc pca"],
+      "must_include": ["salicylic acid"], "exclude": ["tea tree oil"], "tags": ["exclusion", "required_ingredient"],
+      "grades": {"ZenClear Balancing Cleanser": 3}
+    },
+    {
+      "id": "dev-toner-hydration", "split": "dev", "category": "Toner",
+      "profile": {"skin_type": "Dry", "concerns": ["dryness"], "goal": "hydrating toner"},
+      "text": "Dry skin. Find a hydrating toner with sodium hyaluronate, glycerin and panthenol. Exclude glycolic acid and salicylic acid.",
+      "preferred_ingredients": ["sodium hyaluronate", "glycerin", "panthenol"],
+      "exclude": ["glycolic acid", "salicylic acid"], "tags": ["exclusion", "multiple_ingredients"],
+      "grades": {"DewDrop Hydrating Toner": 3, "HydraRose Essence Toner": 3, "FloraBalance pH Toner": 2, "AquaFirm Peptide Toner": 2, "SilkMist Calming Toner": 1}
+    },
+    {
+      "id": "dev-toner-brightening", "split": "dev", "category": "Toner",
+      "profile": {"skin_type": "Combination", "concerns": ["uneven appearance"], "goal": "brightening toner"},
+      "text": "Combination skin. Prefer a brightening toner with ascorbic acid, arbutin and niacinamide under GBP 18.",
+      "preferred_ingredients": ["ascorbic acid", "arbutin", "niacinamide"],
+      "max_price": 18, "currency": "GBP", "tags": ["budget", "rare_ingredient"],
+      "grades": {"VitaGlow Brightening Toner": 3, "FloraBalance pH Toner": 1, "PoreRefine Clarifying Toner": 1}
+    },
+    {
+      "id": "dev-serum-specific", "split": "dev", "category": "Serum",
+      "profile": {"skin_type": "Normal", "concerns": ["visible lines"], "goal": "retinol serum"},
+      "text": "Normal skin. Looking for a serum specifically containing retinol, bisabolol and jojoba oil. Retinol is required.",
+      "preferred_ingredients": ["retinol", "bisabolol", "jojoba oil"],
+      "must_include": ["retinol"], "tags": ["required_ingredient", "rare_ingredient"],
+      "grades": {"RetinolPro Age-Defense Serum": 3}
+    },
+    {
+      "id": "dev-serum-no-match", "split": "dev", "category": "Serum",
+      "profile": {"skin_type": "Combination", "concerns": ["uneven appearance"], "goal": "specified-ingredient serum"},
+      "text": "Combination skin. I specifically require a serum containing azelaic acid, and prefer niacinamide as well.",
+      "preferred_ingredients": ["azelaic acid", "niacinamide"],
+      "must_include": ["azelaic acid"], "tags": ["no_match", "required_ingredient"],
+      "grades": {}
+    },
+    {
+      "id": "dev-moisturiser-barrier", "split": "dev", "category": "Moisturiser",
+      "profile": {"skin_type": "Dry", "concerns": ["dryness"], "goal": "barrier cream"},
+      "text": "Dry skin. Find a barrier cream with ceramide np, ceramide ap and cholesterol. Prefer to avoid retinol and spend at most GBP 25.",
+      "preferred_ingredients": ["ceramide np", "ceramide ap", "cholesterol"],
+      "exclude": ["retinol"], "max_price": 25, "currency": "GBP", "tags": ["budget", "exclusion"],
+      "grades": {"DermaSoft Barrier Repair Cream": 3, "VelvetCloud Daily Moisturiser": 1, "PureCalm Sensitive Moisturiser": 1}
+    },
+    {
+      "id": "dev-moisturiser-oil", "split": "dev", "category": "Moisturiser",
+      "profile": {"skin_type": "Oily", "concerns": ["shine"], "goal": "matte moisturiser"},
+      "text": "Oily skin. Prefer a matte moisturiser with niacinamide, zinc pca and glycerin under GBP 17.",
+      "preferred_ingredients": ["niacinamide", "zinc pca", "glycerin"],
+      "max_price": 17, "currency": "GBP", "tags": ["budget", "multiple_ingredients"],
+      "grades": {"OilFree Matte Moisturiser": 3, "AquaLock Gel Moisturiser": 2}
+    },
+    {
+      "id": "dev-exfoliator-pha", "split": "dev", "category": "Exfoliator",
+      "profile": {"skin_type": "Sensitive", "concerns": ["rough appearance"], "goal": "specified PHA exfoliant"},
+      "text": "Sensitive skin. Looking specifically for a PHA exfoliant containing gluconolactone, preferably with lactobionic acid and panthenol. Exclude glycolic acid.",
+      "preferred_ingredients": ["gluconolactone", "lactobionic acid", "panthenol"],
+      "must_include": ["gluconolactone"], "exclude": ["glycolic acid"], "tags": ["required_ingredient", "exclusion", "rare_ingredient"],
+      "grades": {"MicroRefine PHA Exfoliant": 3}
+    },
+    {
+      "id": "dev-exfoliator-budget", "split": "dev", "category": "Exfoliator",
+      "profile": {"skin_type": "Oily", "concerns": ["rough appearance"], "goal": "salicylic exfoliant"},
+      "text": "Oily skin. Prefer an exfoliant with salicylic acid, niacinamide and zinc pca, costing no more than GBP 17.",
+      "preferred_ingredients": ["salicylic acid", "niacinamide", "zinc pca"],
+      "max_price": 17, "currency": "GBP", "tags": ["budget", "multiple_ingredients"],
+      "grades": {"ClearSkin Daily Exfoliator": 3, "PoreClear BHA Exfoliant": 2}
+    },
+    {
+      "id": "dev-sunscreen-calm", "split": "dev", "category": "Sunscreen",
+      "profile": {"skin_type": "Sensitive", "concerns": ["dryness"], "goal": "mineral sunscreen"},
+      "text": "Sensitive skin. Prefer a mineral sunscreen with zinc oxide, bisabolol and centella asiatica extract. Exclude homosalate and octisalate.",
+      "preferred_ingredients": ["zinc oxide", "bisabolol", "centella asiatica extract"],
+      "exclude": ["homosalate", "octisalate"], "tags": ["exclusion", "multiple_ingredients"],
+      "grades": {"CalmShield Sensitive SPF50": 3, "DermaGuard Mineral SPF40": 2, "AquaShield Hydrating SPF50": 2, "ShieldMax SPF50 Sunscreen": 1}
+    },
+    {
+      "id": "dev-sunscreen-budget", "split": "dev", "category": "Sunscreen",
+      "profile": {"skin_type": "Oily", "concerns": ["shine"], "goal": "matte sunscreen"},
+      "text": "Oily skin. Find a matte sunscreen with zinc oxide, zinc pca and niacinamide for at most GBP 20.",
+      "preferred_ingredients": ["zinc oxide", "zinc pca", "niacinamide"],
+      "max_price": 20, "currency": "GBP", "tags": ["budget", "multiple_ingredients"],
+      "grades": {"MatteSun Oil-Free SPF50": 3, "InvisVeil Lightweight SPF30": 1}
+    },
+    {
+      "id": "test-cleanser-calm", "split": "test", "category": "Cleanser",
+      "profile": {"skin_type": "Sensitive", "concerns": ["uncomfortable dryness"], "goal": "soothing cleanser"},
+      "text": "Sensitive skin. Prefer a soothing cleanser with centella asiatica extract, bisabolol and madecassoside. Exclude salicylic acid.",
+      "preferred_ingredients": ["centella asiatica extract", "bisabolol", "madecassoside"],
+      "exclude": ["salicylic acid"], "tags": ["rare_ingredient", "exclusion"],
+      "grades": {"NuCalm Soothing Cleanser": 3, "DermaSoft Micellar Gel Cleanser": 1}
+    },
+    {
+      "id": "test-cleanser-enzyme", "split": "test", "category": "Cleanser",
+      "profile": {"skin_type": "Normal", "concerns": ["rough appearance"], "goal": "enzyme cleanser"},
+      "text": "Normal skin. I want an enzyme cleanser containing papain, preferably also bromelain and glycerin, for GBP 20 or less.",
+      "preferred_ingredients": ["papain", "bromelain", "glycerin"],
+      "must_include": ["papain"], "max_price": 20, "currency": "GBP", "tags": ["rare_ingredient", "required_ingredient", "budget"],
+      "grades": {"SkinReset Enzyme Cleanser": 3}
+    },
+    {
+      "id": "test-toner-calm", "split": "test", "category": "Toner",
+      "profile": {"skin_type": "Sensitive", "concerns": ["dryness"], "goal": "calming toner"},
+      "text": "Sensitive skin. Prefer a calming toner with centella asiatica extract, madecassoside and bisabolol under GBP 16. Exclude salicylic acid.",
+      "preferred_ingredients": ["centella asiatica extract", "madecassoside", "bisabolol"],
+      "exclude": ["salicylic acid"], "max_price": 16, "currency": "GBP", "tags": ["exclusion", "budget"],
+      "grades": {"SilkMist Calming Toner": 3, "DewDrop Hydrating Toner": 1, "FloraBalance pH Toner": 1}
+    },
+    {
+      "id": "test-toner-peptide", "split": "test", "category": "Toner",
+      "profile": {"skin_type": "Normal", "concerns": ["visible lines"], "goal": "peptide toner"},
+      "text": "Normal skin. Prefer a peptide toner with acetyl hexapeptide-8, adenosine and sodium hyaluronate.",
+      "preferred_ingredients": ["acetyl hexapeptide-8", "adenosine", "sodium hyaluronate"],
+      "tags": ["rare_ingredient", "multiple_ingredients"],
+      "grades": {"AquaFirm Peptide Toner": 3, "DewDrop Hydrating Toner": 1, "HydraRose Essence Toner": 1, "FloraBalance pH Toner": 1}
+    },
+    {
+      "id": "test-serum-ceramide", "split": "test", "category": "Serum",
+      "profile": {"skin_type": "Dry", "concerns": ["dryness"], "goal": "ceramide serum"},
+      "text": "Dry skin. Prefer a ceramide serum with ceramide np, ceramide ap and cholesterol. Exclude retinol and keep the price at or below GBP 30.",
+      "preferred_ingredients": ["ceramide np", "ceramide ap", "cholesterol"],
+      "exclude": ["retinol"], "max_price": 30, "currency": "GBP", "tags": ["exclusion", "budget"],
+      "grades": {"DeepRepair Ceramide Serum": 3, "CalmSkin Barrier Serum": 3, "HydraBoost Hyaluronic Serum": 1}
+    },
+    {
+      "id": "test-serum-budget", "split": "test", "category": "Serum",
+      "profile": {"skin_type": "Oily", "concerns": ["shine"], "goal": "niacinamide serum"},
+      "text": "Oily skin. Prefer a serum with niacinamide, zinc pca and sodium hyaluronate for GBP 23 or less. Exclude glycolic acid and retinol.",
+      "preferred_ingredients": ["niacinamide", "zinc pca", "sodium hyaluronate"],
+      "exclude": ["glycolic acid", "retinol"], "max_price": 23, "currency": "GBP", "tags": ["budget", "exclusion"],
+      "grades": {"BrightWave Niacinamide Serum": 3, "HydraBoost Hyaluronic Serum": 1}
+    },
+    {
+      "id": "test-moisturiser-water", "split": "test", "category": "Moisturiser",
+      "profile": {"skin_type": "Combination", "concerns": ["dryness"], "goal": "water cream"},
+      "text": "Combination skin. Prefer a water cream with sodium hyaluronate, trehalose and beta-glucan. Exclude shea butter and spend no more than GBP 18.",
+      "preferred_ingredients": ["sodium hyaluronate", "trehalose", "beta-glucan"],
+      "exclude": ["shea butter"], "max_price": 18, "currency": "GBP", "tags": ["budget", "exclusion"],
+      "grades": {"HydraPlump Water Cream": 3, "AquaLock Gel Moisturiser": 2, "OilFree Matte Moisturiser": 1}
+    },
+    {
+      "id": "test-moisturiser-no-match", "split": "test", "category": "Moisturiser",
+      "profile": {"skin_type": "Dry", "concerns": ["dryness"], "goal": "very low budget moisturiser"},
+      "text": "Dry skin. I need a moisturiser for at most GBP 5, preferably containing glycerin and squalane.",
+      "preferred_ingredients": ["glycerin", "squalane"],
+      "max_price": 5, "currency": "GBP", "tags": ["no_match", "budget"],
+      "grades": {}
+    },
+    {
+      "id": "test-exfoliator-enzyme", "split": "test", "category": "Exfoliator",
+      "profile": {"skin_type": "Normal", "concerns": ["rough appearance"], "goal": "enzyme peel"},
+      "text": "Normal skin. Prefer an enzyme peel with papain, bromelain and allantoin. Exclude glycolic acid and salicylic acid.",
+      "preferred_ingredients": ["papain", "bromelain", "allantoin"],
+      "exclude": ["glycolic acid", "salicylic acid"], "tags": ["rare_ingredient", "exclusion"],
+      "grades": {"SilkSmooth Enzyme Peel": 3, "GentleBuff Physical Exfoliator": 1, "MicroRefine PHA Exfoliant": 1}
+    },
+    {
+      "id": "test-exfoliator-combination", "split": "test", "category": "Exfoliator",
+      "profile": {"skin_type": "Combination", "concerns": ["rough appearance"], "goal": "combined acid exfoliant"},
+      "text": "Combination skin. Prefer an exfoliant containing glycolic acid, salicylic acid and lactic acid. Exclude tea tree oil.",
+      "preferred_ingredients": ["glycolic acid", "salicylic acid", "lactic acid"],
+      "exclude": ["tea tree oil"], "tags": ["multiple_ingredients", "exclusion"],
+      "grades": {"DualAction AHA/BHA Exfoliant": 3, "GlowPeel AHA Exfoliant": 2, "ClearSkin Daily Exfoliator": 2, "BrightPolish Vitamin C Exfoliator": 1, "SilkSmooth Enzyme Peel": 1}
+    },
+    {
+      "id": "test-sunscreen-tinted", "split": "test", "category": "Sunscreen",
+      "profile": {"skin_type": "Normal", "concerns": ["uneven appearance"], "goal": "tinted sunscreen"},
+      "text": "Normal skin. I specifically want a tinted sunscreen containing iron oxides, preferably also titanium dioxide and squalane.",
+      "preferred_ingredients": ["iron oxides", "titanium dioxide", "squalane"],
+      "must_include": ["iron oxides"], "tags": ["required_ingredient", "rare_ingredient"],
+      "grades": {"GlowGuard Tinted SPF30": 3}
+    },
+    {
+      "id": "test-sunscreen-hydration", "split": "test", "category": "Sunscreen",
+      "profile": {"skin_type": "Dry", "concerns": ["dryness"], "goal": "hydrating sunscreen"},
+      "text": "Dry skin. Prefer a hydrating sunscreen with zinc oxide, sodium hyaluronate and panthenol under GBP 27. Exclude homosalate.",
+      "preferred_ingredients": ["zinc oxide", "sodium hyaluronate", "panthenol"],
+      "exclude": ["homosalate"], "max_price": 27, "currency": "GBP", "tags": ["budget", "exclusion"],
+      "grades": {"AquaShield Hydrating SPF50": 3, "CalmShield Sensitive SPF50": 2, "ShieldMax SPF50 Sunscreen": 1, "DermaGuard Mineral SPF40": 1}
+    }
+  ]
+}
