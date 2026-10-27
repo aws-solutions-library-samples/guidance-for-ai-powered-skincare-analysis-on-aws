@@ -3,60 +3,51 @@ import json
 
 import pytest
 
-import agentcore_entrypoint
-from agents.catalog_binding import bind_products, safe_product_image
+from agents.catalog_binding import render_products, safe_product_image
 from agents.compile_node import CompileNode
+from agents.models import ProductExplanations
+from tests.search_fixtures import product
 
 
-def test_fabricated_catalog_id_is_rejected(routine_state):
-    output = routine_state["products_outputs"]["products_Cleanser"]
-    output.top_recommendations[0].product_id = "invented-product"
-    with pytest.raises(ValueError, match="catalog query"):
-        bind_products(output, "products_Cleanser", routine_state["trusted_products"])
-
-
-def test_product_cannot_be_selected_from_another_step(routine_state):
-    output = routine_state["products_outputs"]["products_Cleanser"]
-    output.top_recommendations[0].product_id = "id-Sunscreen"
+@pytest.mark.parametrize("ids", [
+    ["invented-product"], ["id-Sunscreen"], ["id-Cleanser", "id-Cleanser"], [],
+])
+def test_explanation_cannot_replace_add_duplicate_or_omit_ids(routine_state, ids):
+    result = routine_state["search_results"]["products_Cleanser"]
     with pytest.raises(ValueError):
-        bind_products(output, "products_Cleanser", routine_state["trusted_products"])
+        explanation = ProductExplanations(step_name="Cleanser", products=[
+            {"product_id": identifier, "why_for_you": "text", "usage_tip": "text"}
+            for identifier in ids
+        ])
+        render_products(result, {"ing-a": "Glycerin"}, explanation)
 
 
-def test_duplicate_ids_and_missing_query_are_rejected(routine_state):
-    output = routine_state["products_outputs"]["products_Cleanser"]
-    with pytest.raises(ValueError):
-        bind_products(output, "products_Cleanser", {})
-    output.top_recommendations.append(output.top_recommendations[0])
-    with pytest.raises(ValueError):
-        bind_products(output, "products_Cleanser", routine_state["trusted_products"])
-
-
-def test_model_cannot_override_price_name_score_ingredients_or_image(routine_state):
-    output = routine_state["products_outputs"]["products_Cleanser"]
-    selection = output.top_recommendations[0]
-    selection.name = "Fabricated product"
-    selection.price = "£0.01"
-    selection.match_score = "999%"
-    selection.matched_ingredients = ["fabricated ingredient"]
-    selection.image_url = "https://attacker.invalid/track?secret=data"
-    result = bind_products(output, "products_Cleanser", routine_state["trusted_products"])
-    product = result.top_recommendations[0]
-    assert product.name == "Example Cleanser"
-    assert product.price == "£12.00"
-    assert product.match_score == "100%"
-    assert product.matched_ingredients == ["Glycerin"]
-    assert product.image_url == "/products/example.jpg"
-
-
-def test_compiler_revalidates_catalog_binding(routine_state):
-    routine_state["products_outputs"]["products_Cleanser"].top_recommendations[0].price = "£0.01"
+def test_compiler_discards_fabricated_display_fields(routine_state):
+    selection = routine_state["products_outputs"]["products_Cleanser"].top_recommendations[0]
+    selection.name, selection.price, selection.match_score = "fabricated", "GBP 0.01", "999%"
+    selection.image_url = "https://attacker.invalid/collect"
     result = asyncio.run(CompileNode().invoke_async("compile", invocation_state=routine_state))
-    serialized = json.dumps(result.to_dict())
-    assert "0.01" not in serialized
-    assert "12.00" in serialized
-    routine_state["trusted_products"].clear()
-    with pytest.raises(ValueError):
-        asyncio.run(CompileNode().invoke_async("compile", invocation_state=routine_state))
+    wire = json.dumps(result.to_dict())
+    assert all(value not in wire for value in ("fabricated", "0.01", "999%", "attacker.invalid"))
+    assert "GBP 12.00" in wire
+
+
+def test_display_update_invalidates_generated_explanation(routine_state):
+    result = routine_state["search_results"]["products_Cleanser"]
+    old = result.products[0].product
+    explanation = ProductExplanations(step_name="Cleanser", products=[{
+        "product_id": old.product_id, "why_for_you": "Old formulation claim", "usage_tip": "Old directions",
+    }])
+    revised = product(
+        **{**old.model_dump(), "source_revision": 2, "name": "Updated product"},
+    )
+    result = result.model_copy(update={"products": (
+        result.products[0].model_copy(update={"product": revised}),
+    )})
+    output = render_products(result, {"ing-a": "Glycerin"}, explanation,
+                             explanation_hashes={old.product_id: old.record_hash})
+    assert output.top_recommendations[0].name == "Updated product"
+    assert output.top_recommendations[0].why_for_you != "Old formulation claim"
 
 
 @pytest.mark.parametrize("value", [

@@ -3,7 +3,7 @@ import { API_CONFIG } from '../config/constants';
 import { ApiService } from '../utils/api';
 import { AnalysisError } from '../utils/analysisErrors';
 import type { AnalysisErrorCode } from '../utils/analysisErrors';
-import type { AnalysisStage, AnalysisUpdate, CompiledRoutine, PartialRoutineStep, PlannedStep, SkinAnalysisProfile } from '../types';
+import type { AnalysisStage, AnalysisUpdate, CompiledRoutine, IngredientPreferences, PartialRoutineStep, PlannedStep, SkinAnalysisProfile } from '../types';
 
 interface AnalysisState {
   status: 'idle' | 'running' | 'complete' | 'failed';
@@ -47,8 +47,8 @@ function reducer(state: AnalysisState, action: Action): AnalysisState {
   }
   const existing = state.partialRoutine.find(step => step.step_name === update.stepName);
   const step: PartialRoutineStep = update.type === 'ingredients'
-    ? { ...existing, step_name: update.stepName, ingredients: update.ingredients, analysis_notes: update.analysisNotes, status: existing?.status === 'ready' ? 'ready' : 'ingredients' }
-    : { ...existing, step_name: update.stepName, products: update.products, status: 'ready' };
+    ? { ...existing, step_name: update.stepName, ingredients: update.ingredients, analysis_notes: update.analysisNotes, status: existing?.status === 'ready' || existing?.status === 'no_match' ? existing.status : 'ingredients' }
+    : { ...existing, step_name: update.stepName, products: update.products, status: update.recommendationStatus === 'no_match' ? 'no_match' : 'ready' };
   return {
     ...state,
     partialRoutine: existing
@@ -73,7 +73,7 @@ export function useAnalysis() {
     cancel();
     dispatch({ type: 'reset' });
   };
-  const start = async (images: string[]) => {
+  const start = async (images: string[], preferences: IngredientPreferences = {}) => {
     cancel();
     const controller = new AbortController();
     active.current = controller;
@@ -87,6 +87,7 @@ export function useAnalysis() {
           if (active.current === controller) dispatch({ type: 'update', update });
         },
         controller.signal,
+        preferences,
       );
       if (active.current === controller) dispatch({ type: 'complete', results });
     } catch (error) {

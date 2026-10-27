@@ -55,7 +55,7 @@ class LocalMethods:
 
     def legacy(self, query: dict, limit: int, filtered: bool = False) -> list[dict]:
         # Invoke the real scorer; preserve CSV input order for production's stable-sort ties.
-        from agents.product_repository import _compute_position_scores
+        from experiments.search.legacy_repository import _compute_position_scores
 
         ids = self.categories.get(query["category"], [])
         if filtered:

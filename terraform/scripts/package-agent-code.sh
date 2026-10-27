@@ -21,7 +21,12 @@ mkdir -p "$STAGE"
 for source_file in "$@"; do
   mkdir -p "$(dirname "$STAGE/$source_file")"
   cp "$PROJECT_ROOT/$source_file" "$STAGE/$source_file"
+  chmod 0644 "$STAGE/$source_file"
 done
+
+# COPY retains archive permissions. Make staged source traversable/readable by
+# the non-root container user regardless of the deployment shell's umask.
+find "$STAGE" -type d -exec chmod 0755 {} +
 
 # Recreate the archive so deleted source files cannot survive a later build.
 rm -f "$BUILD_DIR/agent-code.zip"

@@ -1,11 +1,15 @@
 # Input and catalog validation
 
-The analysis endpoint accepts only `job_id` and `images`. A request contains one
+Legacy v1 accepts only `job_id` and `images`. V2 adds `api_version: 2` and optional
+validated preferences; unsupported fields, unknown identities, conflicting
+exclusions/must-haves and invalid price caps return `INVALID_PREFERENCES`.
+A request contains one
 to three base64 images. Each decoded image must be at most 1 MiB, with each side
 at most 2048 pixels. The encoded length is checked before base64 allocation.
 JPEG, PNG, static GIF and static WebP are supported; animations, corrupt images
-and unexpected request fields are rejected before constructing an agent or an
-AWS client.
+and unexpected request fields are rejected by the runtime before constructing
+an agent or its AWS clients. The Lambda proxy performs separate payload and
+identity checks before invoking the runtime.
 
 Pillow verifies the file, then reopens and fully decodes it. Accepted images are
 normalized to JPEG, without EXIF metadata or appended file content. The normalized
@@ -14,12 +18,18 @@ invalid files or schemas return `INVALID_INPUT`. The browser already resizes
 uploads to at most 1280 pixels; the server checks remain necessary for clients
 that bypass the browser.
 
-Product agents select stable `product_id` values returned by their own successful
-catalog query. A selection from another step, a fabricated ID, or a duplicate ID
-fails validation. Before either an intermediate product event or the final routine
-is sent, the server resolves the name, price, score, matched ingredients and image
-path from the trusted query results. Model-supplied values cannot override those
-facts. The compiler repeats that validation.
+Server code selects stable product IDs from a bounded exact-ingredient query and
+strong canonical reads. The product agent may explain only that ordered list.
+Its fabricated, duplicate, omitted or reordered IDs invalidate the explanation;
+they do not change the server's selection. Canonical facts supply names, prices,
+coverage, ingredients and images. Finalization rereads at most 24 products,
+removes changed matching records, refreshes display facts and drops stale generated
+explanations. See the [search specification](search-spec/README.md).
+
+Every explicit must-have is required within its named category. Exclusions apply
+to every step and require both a complete source ingredient list and complete
+identity resolution. Unknown constrained facts fail eligibility. Match counts
+do not imply concentration, stock or effectiveness.
 
 Product pictures must be local assets with paths such as
 `/products/cleanser/front.webp`. Publish them under `frontend/public/products/`.
@@ -34,9 +44,11 @@ the application and its regional Cognito endpoint. Inline styles remain necessar
 for the current animation and UI components. Inline scripts, evaluated scripts,
 arbitrary HTTPS image hosts, objects and base-URL changes are not permitted.
 
-These controls do not themselves establish per-user usage budgets, prevent direct
-runtime access, or make model explanations factual. Those concerns remain open
-in the [security checklist](security-checklist.md) until separately verified.
+The Lambda proxy separately enforces per-user allowances and active-analysis
+leases, and the runtime resource policy restricts invocation to the proxy role.
+Their deployed behavior must be checked with the [release validation runbook](release-validation.md).
+These controls do not make model explanations factual. The
+[security checklist](security-checklist.md) tracks the remaining release evidence.
 
 Implementation references:
 

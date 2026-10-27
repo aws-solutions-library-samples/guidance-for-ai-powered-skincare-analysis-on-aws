@@ -8,15 +8,15 @@ to the deterministic compiler. No global mutable state.
 """
 
 import logging
+import asyncio
 from collections.abc import AsyncIterator
 from typing import Any
+from uuid import uuid4
 
 from strands.multiagent import GraphBuilder
 from strands.multiagent.base import Status
 from strands.multiagent.graph import Graph, GraphState
 from strands.types.content import ContentBlock
-
-from catalog import load_catalog
 
 from .ingredients_analysis_agent import create_ingredients_agent
 from .models import RoutineStep, StepAnalysisResult
@@ -26,7 +26,8 @@ from .skin_analysis_agent import create_skin_analysis_agent
 from .step_analysis_agent import create_step_analysis_agent
 from .compile_node import CompileNode
 from .errors import AnalysisFailure
-from .catalog_binding import bind_products
+from .search.contracts import Preferences
+from .recommendation_nodes import IngredientSelectionNode, ProductSelectionNode
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +62,10 @@ class Orchestrator:
     def __init__(self) -> None:
         self.product_service = ProductService()
 
-    async def run(self, image_bytes_list: list[bytes]) -> AsyncIterator[dict]:
+    async def run(
+        self, image_bytes_list: list[bytes], *, preferences: Preferences | None = None,
+        api_version: int = 1,
+    ) -> AsyncIterator[dict]:
         """Execute two-phase graph, yielding stream_async events.
 
         Args:
@@ -74,19 +78,31 @@ class Orchestrator:
         Raises:
             RuntimeError: If the products database is empty.
         """
-        if not self.product_service.has_products():
-            logger.error("Product database is empty")
-            raise AnalysisFailure("SERVICE_UNAVAILABLE")
+        preferences = preferences or Preferences()
+        await asyncio.to_thread(self.product_service.initialize, preferences)
+        preferences = preferences.model_copy(update={
+            "market": preferences.market or self.product_service.config.default_market,
+            "currency": preferences.currency or self.product_service.config.default_currency,
+        })
 
         invocation_state: dict[str, Any] = {
             "product_service": self.product_service,
             "tool_errors": {},
-            "trusted_products": {},
+            "preferences": preferences,
+            "api_version": api_version,
+            "request_id": uuid4().hex,
+            "search_results": {},
+            "product_explanations": {},
+            "explanation_hashes": {},
         }
 
         # --- Diagnose: Static graph (skin_analysis → step_analysis) ---
         phase1 = self._build_diagnose_graph()
         content_blocks = self._build_image_input(image_bytes_list)
+        if preferences.must_have_by_category:
+            content_blocks.append(ContentBlock(text=(
+                "User-requested routine constraints:\n" + preferences.model_dump_json()
+            )))
 
         phase1_result = None
         async for event in phase1.stream_async(
@@ -102,6 +118,11 @@ class Orchestrator:
         # Parse step_analysis output
         step_analysis_result = self._parse_step_analysis(phase1_result)
         steps = step_analysis_result.routine_steps
+        if any(
+            entry.category_id not in {step.step_name for step in steps}
+            for entry in preferences.must_have_by_category
+        ):
+            raise AnalysisFailure("INVALID_PREFERENCES")
         logger.info(
             "Diagnose phase complete: %d routine steps identified",
             len(steps),
@@ -112,40 +133,24 @@ class Orchestrator:
 
         # --- Prescribe: Dynamic graph (ingredients → products → compile) ---
         phase2 = self._build_prescribe_graph(steps)
-        task = self._build_prescribe_task(step_analysis_result)
+        task = self._build_prescribe_task(step_analysis_result, preferences)
 
         # Dicts to collect structured outputs for CompileNode
         invocation_state["ingredients_outputs"] = {}
         invocation_state["products_outputs"] = {}
 
         async for event in phase2.stream_async(task, invocation_state=invocation_state):
-            # Capture structured outputs as nodes complete
-            if event.get("type") == "multiagent_node_stop":
-                node_id = event["node_id"]
-                node_result = event.get("node_result")
-                if node_result and hasattr(node_result.result, "structured_output"):
-                    so = node_result.result.structured_output
-                    if so is not None:
-                        if node_id.startswith("ingredients_"):
-                            invocation_state["ingredients_outputs"][node_id] = so
-                        elif node_id.startswith("products_"):
-                            so = bind_products(so, node_id, invocation_state["trusted_products"])
-                            node_result.result.structured_output = so
-                            # Replace raw model product text too, including later graph summaries.
-                            node_result.result.message = {
-                                "role": "assistant", "content": [{"text": so.model_dump_json()}],
-                            }
-                            invocation_state["products_outputs"][node_id] = so
+            # Custom nodes store and bind outputs before returning to the scheduler.
             yield event
 
     def _build_diagnose_graph(self) -> Graph:
         """Build the static Diagnose graph: skin_analysis → step_analysis."""
         builder = GraphBuilder()
         builder.add_node(create_skin_analysis_agent(), "skin_analysis")
-        builder.add_node(create_step_analysis_agent(), "step_analysis")
+        builder.add_node(create_step_analysis_agent(self.product_service.config.categories), "step_analysis")
         builder.add_edge("skin_analysis", "step_analysis")
         builder.set_entry_point("skin_analysis")
-        builder.set_execution_timeout(300)
+        builder.set_execution_timeout(120)
         return builder.build()
 
     def _build_prescribe_graph(self, steps: list[RoutineStep]) -> Graph:
@@ -160,7 +165,7 @@ class Orchestrator:
         Returns:
             Configured Graph ready for execution.
         """
-        available_categories = set(load_catalog().categories)
+        available_categories = set(self.product_service.config.categories)
         invalid_steps = [
             step.step_name for step in steps
             if step.step_name not in available_categories
@@ -173,8 +178,8 @@ class Orchestrator:
         # Add ingredient + product node pairs per step
         for step in steps:
             name = step.step_name
-            builder.add_node(create_ingredients_agent(name), f"ingredients_{name}")
-            builder.add_node(create_product_agent(name), f"products_{name}")
+            builder.add_node(IngredientSelectionNode(name, create_ingredients_agent(name)), f"ingredients_{name}")
+            builder.add_node(ProductSelectionNode(name, create_product_agent(name)), f"products_{name}")
             builder.add_edge(f"ingredients_{name}", f"products_{name}")
 
         # Add compile node with conditional edges (wait for ALL products)
@@ -186,7 +191,7 @@ class Orchestrator:
         for pid in product_node_ids:
             builder.add_edge(pid, "compile", condition=all_done)
 
-        builder.set_execution_timeout(600)
+        builder.set_execution_timeout(120)
         return builder.build()
 
     def _parse_step_analysis(self, graph_result: Any) -> StepAnalysisResult:
@@ -269,7 +274,9 @@ class Orchestrator:
         )
         return blocks
 
-    def _build_prescribe_task(self, step_analysis: StepAnalysisResult) -> str:
+    def _build_prescribe_task(
+        self, step_analysis: StepAnalysisResult, preferences: Preferences | None = None,
+    ) -> str:
         """Build the text task for Prescribe graph entry nodes.
 
         Each ingredients_* entry node receives the full step_analysis context
@@ -285,6 +292,6 @@ class Orchestrator:
         # Keep this guarded message as data: the former imperative suffix
         # triggered PROMPT_ATTACK even with an otherwise allowed routine.
         return (
-            f"User skin analysis and routine plan:\n\n"
-            f"{step_analysis.model_dump_json(indent=2)}"
+            f"User skin analysis and routine plan:\n\n{step_analysis.model_dump_json(indent=2)}"
+            f"\n\nUser ingredient preferences:\n{(preferences or Preferences()).model_dump_json()}"
         )

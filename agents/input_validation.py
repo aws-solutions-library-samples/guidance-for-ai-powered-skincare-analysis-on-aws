@@ -6,6 +6,7 @@ import io
 import re
 
 from PIL import Image, ImageOps, UnidentifiedImageError
+from .search.contracts import Preferences
 
 MAX_IMAGES = 3
 MAX_IMAGE_BYTES = 1024 * 1024
@@ -19,13 +20,31 @@ class ImageLimitError(ValueError):
     """A validly shaped request exceeds the published image budget."""
 
 
+class PreferencesError(ValueError):
+    """Malformed constraints are distinct from malformed photos."""
+
+
 def validate_payload(payload: object) -> tuple[str, list[bytes]]:
-    if not isinstance(payload, dict) or set(payload) != {"job_id", "images"}:
-        raise ValueError("Expected only job_id and images")
+    request_options(payload)
     job_id = payload["job_id"]
     if not isinstance(job_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", job_id):
         raise ValueError("Invalid request identifier")
     return job_id, decode_images(payload["images"])
+
+
+def request_options(payload: object) -> tuple[int, Preferences]:
+    if not isinstance(payload, dict) or not {"job_id", "images"} <= set(payload):
+        raise ValueError("Expected job_id and images")
+    version = payload.get("api_version", 1)
+    if type(version) is not int or version not in (1, 2):
+        raise ValueError("Unsupported API version")
+    allowed = {"job_id", "images"} if version == 1 else {"job_id", "images", "api_version", "preferences"}
+    if set(payload) - allowed:
+        raise ValueError("Unknown request fields")
+    try:
+        return version, Preferences.model_validate(payload.get("preferences", {}))
+    except ValueError as exc:
+        raise PreferencesError("Invalid ingredient preferences") from exc
 
 
 def decode_images(images: object) -> list[bytes]:

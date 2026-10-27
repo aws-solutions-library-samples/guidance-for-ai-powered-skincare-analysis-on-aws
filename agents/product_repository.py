@@ -1,215 +1,126 @@
-"""DynamoDB-based product service for fast product queries."""
+"""Application facade for bounded exact-ingredient catalog access."""
 
-import logging
 import os
+import time
+from uuid import uuid4
 
 import boto3
-import numpy as np
-from boto3.dynamodb.conditions import Key
 
-from catalog import load_catalog
-
-logger = logging.getLogger(__name__)
-
-def _normalize_ingredients(raw_ingredients: list) -> list[str]:
-    """Normalize raw DynamoDB ingredient data to a flat string list."""
-    if not raw_ingredients:
-        return []
-    if isinstance(raw_ingredients[0], dict):
-        return [item.get("S", "") for item in raw_ingredients]
-    return list(raw_ingredients)
-
-
-def _compute_position_scores(
-    products_ingredients: list[list[str]],
-    required_ingredients: list[str],
-) -> np.ndarray:
-    """Compute weighted position scores for all products using vectorized ops.
-
-    For each product, scores each required ingredient by its position in the
-    INCI list using harmonic weighting: weight = 1 / (position + 1).
-    Ingredients listed first (higher concentration) contribute more to the score.
-
-    Args:
-        products_ingredients: List of ingredient lists (one per product), lowercase.
-        required_ingredients: List of required ingredient names, lowercase.
-
-    Returns:
-        1D array of shape (n_products,) with the total weighted score per product.
-    """
-    n_products = len(products_ingredients)
-    n_required = len(required_ingredients)
-
-    if n_products == 0 or n_required == 0:
-        return np.zeros(n_products)
-
-    # Score matrix: (n_products, n_required)
-    scores = np.zeros((n_products, n_required), dtype=np.float64)
-
-    for p_idx, ingredients in enumerate(products_ingredients):
-        # Build position lookup for this product's ingredients
-        position_map: dict[str, int] = {}
-        for pos, ing in enumerate(ingredients):
-            if ing not in position_map:
-                position_map[ing] = pos
-
-        for r_idx, req in enumerate(required_ingredients):
-            # Substring match: find the earliest position where req appears
-            best_pos: int | None = None
-            for ing, pos in position_map.items():
-                if req in ing:
-                    if best_pos is None or pos < best_pos:
-                        best_pos = pos
-            if best_pos is not None:
-                scores[p_idx, r_idx] = 1.0 / (best_pos + 1)
-
-    # Total score per product = sum of weighted matches
-    return scores.sum(axis=1)
+from .errors import AnalysisFailure
+from .models import IngredientsAnalysisOutput
+from .search.budget import SearchBudget
+from .search.catalog import CatalogMetadata
+from .search.clients import dynamodb_resource, search_client
+from .search.contracts import Preferences, SearchRequest, SearchResult
+from .search.opensearch_adapter import OpenSearchExactAdapter
+from .search.repository import CanonicalProductRepository
+from .search.service import ExactSearchService
+from .telemetry import emit_metrics
 
 
 class ProductService:
-    """Fast product queries using DynamoDB, driven by catalog.yaml schema mapping."""
-
-    def __init__(self, table_name: str | None = None) -> None:
-        self.dynamodb = boto3.resource("dynamodb")
-        if table_name is None:
-            table_name = os.environ.get(
-                "PRODUCTS_TABLE_NAME", "smart-beauty-SkincareProducts"
+    def __init__(self, *, metadata=None, repository=None, client=None):
+        if metadata is None or repository is None or client is None:
+            session = boto3.Session()
+            reads = dynamodb_resource(session)
+            catalog_id = os.environ["CATALOG_ID"]
+            metadata = CatalogMetadata(
+                reads, table_name=os.environ["CATALOG_METADATA_TABLE_NAME"],
+                catalog_id=catalog_id,
             )
-        self.table_name = table_name
-        self.table = self.dynamodb.Table(table_name)
-
-        catalog = load_catalog()
-        self.schema = catalog.schema
-        self.currency = catalog.currency
-        self.index_name = f"{self.schema.category_field}-index"
-
-        logger.info("ProductService initialized with table: %s", table_name)
-
-    def has_products(self) -> bool:
-        """Check for any products; database failures propagate to the caller."""
-        response = self.table.scan(Limit=1, Select="COUNT")
-        return response.get("Count", 0) > 0
-
-    def get_products_by_type(self, product_type: str) -> list[dict]:
-        """Get all query pages for a product type; database failures propagate.
-
-        Args:
-            product_type: The product type/category to query (e.g. "Cleanser").
-
-        Returns:
-            List of product dicts from DynamoDB.
-        """
-        query = {
-            "IndexName": self.index_name,
-            "KeyConditionExpression": Key(self.schema.category_field).eq(product_type),
-        }
-        items: list[dict] = []
-        while True:
-            response = self.table.query(**query)
-            items.extend(response.get("Items", []))
-            last_key = response.get("LastEvaluatedKey")
-            if not last_key:
-                break
-            query["ExclusiveStartKey"] = last_key
-
-        logger.info("Found %d products for category %r", len(items), product_type)
-        return items
-
-    def find_best_products(
-        self,
-        product_type: str,
-        required_ingredients: list[str],
-        limit: int = 3,
-    ) -> list[dict]:
-        """Find top products matching required ingredients using position-weighted scoring.
-
-        Algorithm (two-stage):
-        1. Fetch all products of the given type from DynamoDB (GSI query).
-        2. Score each product using harmonic positional weighting:
-           score = sum(1/(position+1)) for each matched required ingredient.
-           Ingredients higher in the INCI list (= higher concentration) contribute
-           more to the score.
-        3. Return the top N products sorted by weighted score descending.
-        """
-        products = self.get_products_by_type(product_type)
-
-        if not products:
-            return []
-
-        required_ingredients = list(dict.fromkeys(
-            ing.strip() for ing in required_ingredients if ing.strip()
-        ))
-        required_lower = [ing.lower() for ing in required_ingredients]
-
-        # Prepare ingredient lists for vectorized scoring
-        products_ingredients: list[list[str]] = []
-        for product in products:
-            raw = product.get(self.schema.ingredients_field, [])
-            normalized = _normalize_ingredients(raw)
-            lower = [ing.lower().strip() for ing in normalized if ing]
-            products_ingredients.append(lower)
-            product[self.schema.ingredients_field] = normalized
-
-        # Vectorized position-weighted scoring
-        scores = _compute_position_scores(products_ingredients, required_lower)
-
-        # Compute match metadata and format results
-        for idx, product in enumerate(products):
-            ingredients_lower = products_ingredients[idx]
-
-            matched = [
-                req
-                for req in required_ingredients
-                if any(req.lower() in ing for ing in ingredients_lower)
-            ]
-            match_pct = (len(matched) / len(required_ingredients) * 100) if required_ingredients else 0
-
-            product["match_score"] = f"{match_pct:.1f}%"
-            product["position_score"] = float(scores[idx])
-            product["matched_ingredients"] = matched
-
-            price = product.get(self.schema.price_field)
-            if price is not None:
-                try:
-                    price_val = float(price)
-                    product[self.schema.price_field] = (
-                        f"{self.currency}{price_val:.2f}"
-                    )
-                except (ValueError, TypeError):
-                    product[self.schema.price_field] = "Price unavailable"
-            else:
-                product[self.schema.price_field] = "Price unavailable"
-
-        # Sort by position_score (accounts for both presence AND concentration)
-        products.sort(key=lambda p: p["position_score"], reverse=True)
-        return products[:limit]
-
-    def get_available_ingredients(
-        self, product_type: str, top_n: int = 30
-    ) -> list[dict]:
-        """Get most common ingredients for a product type.
-
-        Returns the top N ingredients sorted by frequency, along with
-        the total product count for context.
-        """
-        products = self.get_products_by_type(product_type)
-
-        ingredient_counts: dict[str, int] = {}
-        for product in products:
-            ingredients = _normalize_ingredients(
-                product.get(self.schema.ingredients_field, [])
+            repository = CanonicalProductRepository(
+                reads, table_name=os.environ["PRODUCTS_TABLE_NAME"], catalog_id=catalog_id,
             )
-            for ingredient in dict.fromkeys(ingredients):
-                ingredient_counts[ingredient] = ingredient_counts.get(ingredient, 0) + 1
+            client = search_client(os.environ["OPENSEARCH_ENDPOINT"], session)
+        self.metadata = metadata
+        self.repository = repository
+        self.client = client
+        self.config = None
+        self.search_service = None
 
-        sorted_ingredients = sorted(
-            ingredient_counts.items(),
-            key=lambda x: x[1],
-            reverse=True,
+    def initialize(self, preferences: Preferences) -> None:
+        """Pin one published configuration for the entire routine."""
+        self.config = self.metadata.configuration()
+        self.search_service = ExactSearchService(
+            self.config, OpenSearchExactAdapter(self.client, self.config), self.repository,
         )
+        self.search_service.check_readiness(
+            self.metadata.readiness(self.config, SearchBudget()),
+        )
+        try:
+            self.config.validate_preferences(preferences)
+            ids = sorted(set(preferences.excluded_ingredient_ids).union(
+                identifier for entry in preferences.must_have_by_category
+                for identifier in entry.ingredient_ids
+            ))
+            entries = {}
+            for start in range(0, len(ids), 20):
+                entries.update(self.metadata.ingredients(tuple(ids[start:start + 20]), self.config.taxonomy_version))
+            if set(entries) != set(ids):
+                raise ValueError("Unknown ingredient constraint")
+        except ValueError as exc:
+            raise AnalysisFailure("INVALID_PREFERENCES") from exc
 
-        return [
-            {"ingredient": ing, "count": count, "product_count": len(products)}
-            for ing, count in sorted_ingredients[:top_n]
+    def validate_ingredients(
+        self, output: IngredientsAnalysisOutput, category: str, preferences: Preferences,
+    ) -> IngredientsAnalysisOutput:
+        output = IngredientsAnalysisOutput.model_validate(output.model_dump())
+        if output.step_name != category:
+            raise ValueError("Ingredient output belongs to another step")
+        ids = tuple(item.ingredient_id for item in output.key_ingredients)
+        if len(ids) != len(set(ids)) or any(not identifier for identifier in ids):
+            raise ValueError("Ingredient output requires distinct canonical IDs")
+        entries = self.metadata.ingredients(ids, self.config.taxonomy_version)
+        if set(entries) != set(ids):
+            raise ValueError("Ingredient output contains an unknown canonical ID")
+        ingredients = [
+            item.model_copy(update={"name": entries[item.ingredient_id].display_name})
+            for item in output.key_ingredients
+            if item.ingredient_id not in preferences.excluded_ingredient_ids
         ]
+        if not ingredients:
+            raise ValueError("Ingredient plan is empty after applying exclusions")
+        return output.model_copy(update={"key_ingredients": ingredients})
+
+    def search(
+        self, output: IngredientsAnalysisOutput, preferences: Preferences,
+        request_id: str, *, scheduled_at: float,
+    ) -> SearchResult:
+        config = self.config
+        budget = SearchBudget(config.step_deadline_seconds, started=scheduled_at)
+        request = SearchRequest(
+            request_id=request_id, step_id=f"step-{uuid4().hex}",
+            catalog_id=config.catalog_id, category_id=output.step_name,
+            configuration_id=config.configuration_id, index_generation=config.index_generation,
+            taxonomy_version=config.taxonomy_version, eligibility_mode=config.eligibility_mode,
+            preferred_ingredient_ids=tuple(item.ingredient_id for item in output.key_ingredients),
+            must_have_ingredient_ids=preferences.required_for(output.step_name),
+            excluded_ingredient_ids=preferences.excluded_ingredient_ids,
+            market=preferences.market or config.default_market,
+            currency=preferences.currency or config.default_currency,
+            max_price_minor=preferences.max_price_minor,
+        )
+        result = None
+        try:
+            readiness = self.metadata.readiness(config, budget)
+            result = self.search_service.search(request, readiness=readiness, budget=budget)
+            return result
+        finally:
+            metrics = {
+                "StepSearches": (1, "Count"),
+                "StepSearchFailures": (int(result is None), "Count"),
+                "StepSearchLatency": ((time.monotonic() - scheduled_at) * 1000, "Milliseconds"),
+            }
+            if result is not None:
+                metrics.update({
+                    "StepNoMatch": (int(result.status == "no_match"), "Count"),
+                    "CandidatesRead": (result.trace.retrieved, "Count"),
+                    "CanonicalProductsRead": (result.trace.hydrated, "Count"),
+                    "DependencyRetries": (result.trace.dependency_retries, "Count"),
+                })
+            emit_metrics("step_search", metrics)
+
+    def finalize(self, results: tuple[SearchResult, ...]) -> tuple[SearchResult, ...]:
+        budget = SearchBudget()
+        self.search_service.check_readiness(self.metadata.readiness(self.config, budget))
+        return self.search_service.finalize(results, budget=budget)

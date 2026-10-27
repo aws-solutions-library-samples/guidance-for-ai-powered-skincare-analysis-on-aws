@@ -6,6 +6,8 @@ The client receives results directly; job_id is used only for log correlation.
 """
 
 import logging
+import asyncio
+import time
 from typing import Any
 from uuid import uuid4
 
@@ -14,12 +16,47 @@ from strands.multiagent.base import Status
 
 from agents.orchestrator import Orchestrator
 from agents.errors import AnalysisFailure, error_event
-from agents.input_validation import ImageLimitError, decode_images, validate_payload
+from agents.input_validation import ImageLimitError, PreferencesError, decode_images, validate_payload, request_options
+from agents.telemetry import emit_metrics
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
 
 app = BedrockAgentCoreApp()
+ROUTINE_DEADLINE_SECONDS = 120
+HEARTBEAT_SECONDS = 10
+
+
+async def bounded_events(source, *, deadline=None):
+    """Heartbeat during model silence; cancel the graph at the routine deadline."""
+    if deadline is None:
+        deadline = time.monotonic() + ROUTINE_DEADLINE_SECONDS
+    iterator = source.__aiter__()
+    pending = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.create_task(anext(iterator))
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise AnalysisFailure("TIMEOUT")
+            done, _ = await asyncio.wait({pending}, timeout=min(HEARTBEAT_SECONDS, remaining))
+            if not done:
+                if time.monotonic() >= deadline:
+                    raise AnalysisFailure("TIMEOUT")
+                yield {"type": "heartbeat"}
+                continue
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                return
+            pending = None
+            yield event
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        await iterator.aclose()
 
 def _decode_images(job_id: str, images: list[str]) -> list[bytes]:
     """Compatibility wrapper for local callers; all inputs use the same limits."""
@@ -58,7 +95,14 @@ def _serialize_event(event: dict, request_id: str = "") -> dict:
                 if so is not None:
                     result_dict["result"]["structured_output"] = so.model_dump()
             except (AttributeError, TypeError):
-                pass
+                # Custom deterministic nodes return a nested MultiAgentResult.
+                if event["node_id"].startswith(("ingredients_", "products_")):
+                    agent_results = node_result.get_agent_results()
+                    if len(agent_results) == 1 and agent_results[0].structured_output is not None:
+                        result_dict["result"] = {
+                            "structured_output": agent_results[0].structured_output.model_dump(),
+                            "message": agent_results[0].message,
+                        }
             serialized["node_result"] = result_dict
         return serialized
 
@@ -92,6 +136,9 @@ async def invoke(payload: dict, context: object):
     The frontend interprets multiagent_node_start, multiagent_node_stop,
     and multiagent_result events to drive the UI.
     """
+    started_at = time.monotonic()
+    deadline = started_at + ROUTINE_DEADLINE_SECONDS
+    outcome = "cancelled"
     job_id = str(uuid4())
     try:
         try:
@@ -103,15 +150,29 @@ async def invoke(payload: dict, context: object):
                 ):
                     job_id = candidate
             job_id, image_bytes_list = validate_payload(payload)
+            api_version, preferences = request_options(payload)
         except ImageLimitError as exc:
             raise AnalysisFailure("REQUEST_TOO_LARGE") from exc
+        except PreferencesError as exc:
+            raise AnalysisFailure("INVALID_PREFERENCES") from exc
         except (ValueError, TypeError) as exc:
             raise AnalysisFailure("INVALID_INPUT") from exc
         compiled = False
         node_failure = None
 
-        orchestrator = Orchestrator()
-        async for event in orchestrator.run(image_bytes_list):
+        async def source():
+            orchestrator = await asyncio.to_thread(Orchestrator)
+            events = (
+                orchestrator.run(image_bytes_list, preferences=preferences, api_version=api_version)
+                if api_version == 2 else orchestrator.run(image_bytes_list)
+            )
+            try:
+                async for event in events:
+                    yield event
+            finally:
+                await events.aclose()
+
+        async for event in bounded_events(source(), deadline=deadline):
             if event.get("type") == "error":
                 raise AnalysisFailure("ANALYSIS_FAILED")
             if event.get("type") == "multiagent_node_stop":
@@ -141,12 +202,23 @@ async def invoke(payload: dict, context: object):
         if not compiled:
             raise AnalysisFailure("INVALID_RESPONSE")
         logger.info("Job %s: COMPLETED successfully", job_id)
+        outcome = "completed"
 
     except Exception as exc:
         logger.error("Job %s: FAILED - %s", job_id, exc, exc_info=True)
         public_error = error_event(exc, job_id)
+        outcome = "no_match_terminal" if public_error["code"] == "NO_MATCHING_PRODUCTS" else "failed"
         logger.info("Job %s: error_code=%s", job_id, public_error["code"])
         yield public_error
+    finally:
+        emit_metrics("routine_outcome", {
+            "RoutinesStarted": (1, "Count"),
+            "RoutinesCompleted": (int(outcome == "completed"), "Count"),
+            "RoutinesFailed": (int(outcome == "failed"), "Count"),
+            "RoutinesCancelled": (int(outcome == "cancelled"), "Count"),
+            "RoutinesNoMatchTerminal": (int(outcome == "no_match_terminal"), "Count"),
+            "RoutineLatency": ((time.monotonic() - started_at) * 1000, "Milliseconds"),
+        }, outcome=outcome)
 
 
 if __name__ == "__main__":

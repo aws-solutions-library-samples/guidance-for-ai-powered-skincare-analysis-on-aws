@@ -1,12 +1,13 @@
-"""Resolve model-selected IDs only against this node's trusted catalog query."""
+"""Render server-selected products; generated text cannot change their facts."""
 
 import re
+from decimal import Decimal
 
-from .models import ProductAnalysisOutput, ProductDetail
+from .models import ProductAnalysisOutput, ProductDetail, ProductExplanations
+from .search.contracts import SearchResult
 
 
 def safe_product_image(value: object) -> str:
-    """Product images are published assets on the application's own origin."""
     if isinstance(value, str) and re.fullmatch(
         r"/products/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-]+\.(?:png|jpg|jpeg|webp)", value
     ):
@@ -14,27 +15,50 @@ def safe_product_image(value: object) -> str:
     return ""
 
 
-def bind_products(
-    output: ProductAnalysisOutput, node_id: str, trusted_queries: dict,
+def render_products(
+    result: SearchResult, names: dict[str, str], explanations: ProductExplanations | None = None,
+    *, explanation_hashes: dict[str, str] | None = None,
+    currency_minor_units: dict[str, int] | None = None,
 ) -> ProductAnalysisOutput:
-    if node_id != f"products_{output.step_name}":
-        raise ValueError("Product output does not match its assigned step")
-    catalog = trusted_queries.get(node_id, {})
-    ids = [product.product_id for product in output.top_recommendations]
-    if not ids or len(ids) != len(set(ids)) or any(product_id not in catalog for product_id in ids):
-        raise ValueError("Product selection is absent from this node's catalog query")
+    currency_minor_units = currency_minor_units if currency_minor_units is not None else {"GBP": 2, "EUR": 2, "USD": 2}
+    approved_ids = [item.product.product_id for item in result.products]
+    if explanations is not None and (
+        explanations.step_name != result.request.category_id
+        or [item.product_id for item in explanations.products] != approved_ids
+    ):
+        raise ValueError("Explanations must preserve every approved product ID in order")
+    text = {item.product_id: item for item in explanations.products} if explanations else {}
     products = []
-    for selection in output.top_recommendations:
-        record = catalog[selection.product_id]
+    for selected in result.products:
+        product = selected.product
+        explanation = text.get(product.product_id)
+        # Any changed source content invalidates the previous generated explanation.
+        if explanation and (explanation_hashes or {}).get(product.product_id) != product.record_hash:
+            explanation = None
+        price = "Price unavailable"
+        if product.price_minor is not None and product.currency:
+            exponent = currency_minor_units.get(product.currency)
+            price = (
+                f"{product.currency} {Decimal(product.price_minor).scaleb(-exponent):.{exponent}f}"
+                if exponent is not None else f"{product.currency} {product.price_minor} minor units"
+            )
         products.append(ProductDetail(
-            product_id=selection.product_id,
-            name=record["product_name"],
-            price=record["price"],
-            match_score=record["match_score"],
-            image_url=safe_product_image(record["image_url"]),
-            matched_ingredients=record["matched_ingredients"],
-            # Generated explanation is plain text; it cannot supply catalog facts.
-            why_for_you=selection.why_for_you,
-            usage_tip=selection.usage_tip,
+            product_id=product.product_id, name=product.name,
+            price=price,
+            match_score=f"{selected.matched_count / selected.preferred_count * 100:.1f}%",
+            image_url=safe_product_image(product.image_path),
+            matched_ingredients=[names[identifier] for identifier in selected.matched_ingredient_ids],
+            matched_ingredient_ids=list(selected.matched_ingredient_ids),
+            matched_must_have_ingredient_ids=list(selected.matched_must_have_ingredient_ids),
+            matched_count=selected.matched_count, preferred_count=selected.preferred_count,
+            availability=product.availability,
+            price_minor=product.price_minor, currency=product.currency,
+            why_for_you=explanation.why_for_you if explanation else (
+                f"Contains {selected.matched_count} of your {selected.preferred_count} selected ingredients."
+            ),
+            usage_tip=explanation.usage_tip if explanation else "Follow the product label.",
         ))
-    return ProductAnalysisOutput(step_name=output.step_name, top_recommendations=products)
+    return ProductAnalysisOutput(
+        step_name=result.request.category_id, status=result.status, reason=result.reason,
+        top_recommendations=products,
+    )

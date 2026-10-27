@@ -1,10 +1,8 @@
 # Catalog Configuration
-# This is the ONLY file you need to edit to integrate your own product data.
-#
-# 1. List your product categories under `categories`
-# 2. Map your CSV column names under `schema`
-# 3. Place your CSV file at data/products.csv
-# 4. Run `terraform apply` — data loads automatically
+# CSV column mapping for the bundled fictional catalog.
+# Search configuration and reviewed identity registry are separate versioned
+# files: search-config.json and ingredient-registry.json. See docs/search-spec/.
+# Customer feeds must supply stable product_id and ordered source_revision.
 
 # Product categories available in your catalog.
 # The AI agent uses these names to build skincare routines.

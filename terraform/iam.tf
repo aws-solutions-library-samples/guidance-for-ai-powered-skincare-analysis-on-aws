@@ -58,10 +58,10 @@ data "aws_iam_policy_document" "agentcore_permissions" {
     ]
     resources = [
       # Exact primary/fast model IDs; global inference resolves across regions.
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-sonnet-4-6",
-      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5",
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-haiku-5-5",
     ]
   }
 
@@ -75,19 +75,31 @@ data "aws_iam_policy_document" "agentcore_permissions" {
     resources = [aws_bedrock_guardrail.smart_beauty.guardrail_arn]
   }
 
-  # DynamoDB access
+  # Runtime has no product scan/query or publication permissions.
   statement {
-    sid    = "DynamoDBAccess"
+    sid    = "CanonicalProductReads"
     effect = "Allow"
     actions = [
-      "dynamodb:GetItem",
-      "dynamodb:Query",
-      "dynamodb:Scan",
+      "dynamodb:BatchGetItem",
     ]
     resources = [
-      aws_dynamodb_table.products.arn,
-      "${aws_dynamodb_table.products.arn}/index/*",
+      aws_dynamodb_table.canonical_products.arn,
     ]
+  }
+  statement {
+    sid       = "BoundedCatalogMetadataReads"
+    actions   = ["dynamodb:BatchGetItem"]
+    resources = [aws_dynamodb_table.catalog_metadata.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["CONFIG", "READINESS#*", "INGREDIENT#*", "ALIAS#*", "SUMMARY#*"]
+    }
+  }
+  statement {
+    sid       = "ExactProductSearch"
+    actions   = ["es:ESHttpGet", "es:ESHttpPost"]
+    resources = ["${aws_opensearch_domain.products.arn}/products-*/_search"]
   }
 
   # CloudWatch Logs

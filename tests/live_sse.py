@@ -77,30 +77,67 @@ def validate_events(events: list[dict]) -> list[str]:
     return errors
 
 
-def read_events(response) -> list[dict]:
-    """Read AgentCore SSE frames, rejecting malformed data instead of skipping it."""
-    events = []
+def parse_sse_lines(lines):
+    """Decode a line iterator from either Requests or the HTTPX ASGI test client."""
     data_lines = []
+    frame_bytes = 0
 
-    def flush():
+    for raw_line in lines:
+        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
+        frame_bytes += len(line.encode("utf-8"))
+        if frame_bytes > 2 * 1024 * 1024:
+            raise ValueError("SSE frame exceeds the validation limit")
+        if line:
+            if line.startswith("data:"):
+                data_lines.append(line[5:].lstrip(" "))
+            continue
+        frame_bytes = 0
         if not data_lines:
-            return
+            continue
         event = json.loads("\n".join(data_lines))
         data_lines.clear()
         if isinstance(event, str):
             event = json.loads(event)
         if not isinstance(event, dict) or not isinstance(event.get("type"), str):
             raise ValueError("Invalid SSE event")
-        events.append(event)
+        yield event
+    if data_lines:
+        raise ValueError("Stream ended inside an SSE frame")
 
-    for raw_line in response.iter_lines():
-        line = raw_line.decode("utf-8") if isinstance(raw_line, bytes) else raw_line
-        if not line:
-            flush()
-        elif line.startswith("data:"):
-            data_lines.append(line[5:].lstrip(" "))
-    flush()
-    return events
+
+def iter_events(response):
+    """Yield live Requests frames immediately, without its 512-byte buffer."""
+    yield from parse_sse_lines(response.iter_lines(chunk_size=1))
+
+
+def read_events(response) -> list[dict]:
+    """Validate either HTTP adapter; use iter_events(Requests) for live timings."""
+    return list(parse_sse_lines(response.iter_lines()))
+
+
+def extract_routine(events):
+    stop = next(e for e in events if e.get("type") == "multiagent_node_stop" and e.get("node_id") == "compile")
+    content = stop["node_result"]["result"]["results"]["compile"]["result"]["message"]["content"]
+    return json.loads(next(block["text"] for block in content if "text" in block))
+
+
+def validate_timings(events, arrivals, *, first_event_limit=30, max_gap=60, min_span=1):
+    """Detect late first progress, idle gaps and a response delivered as one burst.
+
+    These are release-test thresholds, not measured service-level commitments.
+    Arrival times are monotonic seconds since sending the request.
+    """
+    errors = []
+    if not arrivals or len(events) != len(arrivals):
+        return ["Missing event arrival times"]
+    if arrivals[0] > first_event_limit:
+        errors.append("First event arrived after the test threshold")
+    if any(b < a or b - a >= max_gap for a, b in zip(arrivals, arrivals[1:])):
+        errors.append("Stream had an excessive idle gap or invalid timing")
+    progress = [t for e, t in zip(events, arrivals) if e.get("type") == "multiagent_node_stop"]
+    if len(progress) < 2 or progress[-1] - progress[0] < min_span:
+        errors.append("Incremental stage completion was not demonstrated")
+    return errors
 
 
 def run_integration_test(api_url: str, auth_token: str, image_b64: str) -> bool:
@@ -115,7 +152,7 @@ def run_integration_test(api_url: str, auth_token: str, image_b64: str) -> bool:
             timeout=(10, 900),
         ) as response:
             response.raise_for_status()
-            events = read_events(response)
+            events = list(iter_events(response))
         errors = validate_events(events)
     except (requests.RequestException, ValueError, TypeError) as exc:
         print(f"FAIL: {exc}")

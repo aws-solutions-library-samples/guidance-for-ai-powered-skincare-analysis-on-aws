@@ -59,6 +59,16 @@ data "aws_iam_policy_document" "api_proxy" {
     resources = [aws_dynamodb_table.analysis_limits.arn]
   }
   statement {
+    sid       = "ExactIngredientLookup"
+    actions   = ["dynamodb:BatchGetItem"]
+    resources = [aws_dynamodb_table.catalog_metadata.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["CONFIG", "INGREDIENT#*", "ALIAS#*", "SUMMARY#*"]
+    }
+  }
+  statement {
     sid       = "WriteOwnLogs"
     actions   = ["logs:CreateLogStream", "logs:PutLogEvents"]
     resources = ["${aws_cloudwatch_log_group.api_proxy.arn}:*"]
@@ -116,19 +126,30 @@ resource "aws_lambda_function" "api_proxy" {
 
   environment {
     variables = {
-      API_ID                   = aws_api_gateway_rest_api.skincare.id
-      COGNITO_ISSUER           = "https://cognito-idp.${local.region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
-      COGNITO_CLIENT_ID        = aws_cognito_user_pool_client.frontend.id
-      AGENT_RUNTIME_ARN        = aws_bedrockagentcore_agent_runtime.main.agent_runtime_arn
-      LIMITS_TABLE_NAME        = aws_dynamodb_table.analysis_limits.name
-      USER_REQUESTS_PER_WINDOW = tostring(var.analysis_requests_per_hour)
-      USER_WINDOW_SECONDS      = "3600"
-      # Covers the two graph deadlines plus initialization/transport overhead.
-      USER_LEASE_SECONDS = "1200"
+      METRICS_DEPLOYMENT          = local.prefix
+      API_ID                      = aws_api_gateway_rest_api.skincare.id
+      COGNITO_ISSUER              = "https://cognito-idp.${local.region}.amazonaws.com/${aws_cognito_user_pool.main.id}"
+      COGNITO_CLIENT_ID           = aws_cognito_user_pool_client.frontend.id
+      AGENT_RUNTIME_ARN           = aws_bedrockagentcore_agent_runtime.main.agent_runtime_arn
+      LIMITS_TABLE_NAME           = aws_dynamodb_table.analysis_limits.name
+      CATALOG_METADATA_TABLE_NAME = aws_dynamodb_table.catalog_metadata.name
+      CATALOG_ID                  = local.search_config.catalog_id
+      USER_REQUESTS_PER_WINDOW    = tostring(var.analysis_requests_per_hour)
+      USER_WINDOW_SECONDS         = "3600"
+      USER_LEASE_SECONDS          = "180"
     }
   }
 
   depends_on = [aws_iam_role_policy.api_proxy, aws_bedrockagentcore_resource_policy.proxy_only]
+}
+
+resource "aws_lambda_permission" "ingredient_lookup_api" {
+  statement_id   = "InvokeFromIngredientLookupAPI"
+  action         = "lambda:InvokeFunction"
+  function_name  = aws_lambda_function.api_proxy.function_name
+  principal      = "apigateway.amazonaws.com"
+  source_account = local.account_id
+  source_arn     = "${aws_api_gateway_rest_api.skincare.execution_arn}/prod/POST/ingredients/lookup"
 }
 
 resource "aws_lambda_permission" "api_gateway" {

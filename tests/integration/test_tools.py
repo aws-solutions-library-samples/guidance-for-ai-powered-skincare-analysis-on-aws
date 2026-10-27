@@ -1,4 +1,4 @@
-"""Tool failures must survive LLM recovery until a successful repository retry."""
+"""Discovery is advisory, bounded, node-scoped, and independent of selection."""
 
 import json
 from types import SimpleNamespace
@@ -6,65 +6,83 @@ from unittest.mock import Mock
 
 import pytest
 
-from agents.tools import find_products_for_step, get_available_ingredients_for_step
-from catalog import SchemaMapping
+from agents.tools import get_available_ingredients_for_step, resolve_ingredient_names
+from tests.search_fixtures import configuration
 
 
 @pytest.fixture
 def context():
     service = Mock()
-    service.schema = SchemaMapping()
-    return SimpleNamespace(invocation_state={"product_service": service}, agent=SimpleNamespace(name="products_Cleanser"))
+    service.config = configuration()
+    return SimpleNamespace(
+        invocation_state={"product_service": service},
+        agent=SimpleNamespace(name="ingredients_Cleanser"),
+    )
 
 
-def test_ingredient_lookup_failure_then_retry_clears_only_its_error(context):
-    service = context.invocation_state["product_service"]
-    service.get_available_ingredients.side_effect = [
-        RuntimeError("database unavailable"),
-        [{"ingredient": "Glycerin", "count": 2, "product_count": 3}],
+def test_failure_then_retry_clears_only_its_error(context):
+    metadata = context.invocation_state["product_service"].metadata
+    metadata.summary.side_effect = [
+        RuntimeError("private database details"),
+        {"ingredients": [], "advisory": True},
     ]
-    context.invocation_state["tool_errors"] = {"products_Sunscreen": "still unavailable"}
+    context.invocation_state["tool_errors"] = {"ingredients_Serum": "unavailable"}
     failed = json.loads(get_available_ingredients_for_step("Cleanser", context))
-    assert failed["error"] == "database unavailable"
-    assert "ingredients_Cleanser" in context.invocation_state["tool_errors"]
+    assert "error" in failed and "private" not in failed["error"]
     success = json.loads(get_available_ingredients_for_step("Cleanser", context))
-    assert success["total_products"] == 3
-    assert context.invocation_state["tool_errors"] == {"products_Sunscreen": "still unavailable"}
+    assert success == {"ingredients": [], "advisory": True}
+    assert context.invocation_state["tool_errors"] == {"ingredients_Serum": "unavailable"}
 
 
-def test_empty_products_are_an_explicit_failure(context):
-    context.invocation_state["product_service"].find_best_products.return_value = []
-    result = json.loads(find_products_for_step("Cleanser", ["Glycerin"], context))
-    assert result["error"]
-    assert context.invocation_state["tool_errors"]["products_Cleanser"]
+def test_exact_lookup_allows_ingredients_outside_common_summary(context):
+    metadata = context.invocation_state["product_service"].metadata
+    metadata.summary.return_value = {"ingredients": [], "advisory": True}
+    metadata.resolve_names.return_value = [{
+        "input": "Rare ingredient", "status": "resolved", "ingredient_id": "ing-rare",
+    }]
+    get_available_ingredients_for_step("Cleanser", context)
+    result = json.loads(resolve_ingredient_names("Cleanser", ["Rare ingredient"], context))
+    assert result["ingredients"][0]["ingredient_id"] == "ing-rare"
 
 
-def test_product_retry_recovers_with_actual_catalog_values(context):
-    service = context.invocation_state["product_service"]
-    service.find_best_products.side_effect = [
-        RuntimeError("query unavailable"),
-        [{
-            "product_id": "cleanser-1", "product_name": "Gentle Cleanser", "price": "£7.00", "image_url": "/products/image.jpg",
-            "ingredients": ["Glycerin"], "matched_ingredients": ["Glycerin"], "match_score": "100%",
-        }],
-    ]
-    assert "error" in json.loads(find_products_for_step("Cleanser", ["Glycerin"], context))
-    success = json.loads(find_products_for_step("Cleanser", ["Glycerin"], context))
-    assert success["products"][0]["product_name"] == "Gentle Cleanser"
-    assert success["products"][0]["image_url"] == "/products/image.jpg"
-    assert context.invocation_state["tool_errors"] == {}
-    assert context.invocation_state["trusted_products"]["products_Cleanser"]["cleanser-1"]["price"] == "£7.00"
+def test_fourth_discovery_call_cannot_extend_budget(context):
+    metadata = context.invocation_state["product_service"].metadata
+    metadata.summary.return_value = {"ingredients": []}
+    for _ in range(3):
+        get_available_ingredients_for_step("Cleanser", context)
+    with pytest.raises(ValueError, match="three"):
+        get_available_ingredients_for_step("Cleanser", context)
+    assert metadata.summary.call_count == 3
+    assert context.invocation_state["tool_errors"]["ingredients_Cleanser"]
 
 
-def test_tool_cannot_query_a_different_nodes_category(context):
-    result = json.loads(find_products_for_step("Sunscreen", ["Glycerin"], context))
-    assert result["error"]
-    context.invocation_state["product_service"].find_best_products.assert_not_called()
-    assert context.invocation_state["trusted_products"] == {}
+def test_other_nodes_category_cannot_be_queried(context):
+    with pytest.raises(ValueError, match="another node"):
+        get_available_ingredients_for_step("Serum", context)
+    context.invocation_state["product_service"].metadata.summary.assert_not_called()
 
 
-@pytest.mark.parametrize("ingredients", [[], [" "], [1], '["Glycerin"]'])
-def test_invalid_ingredient_inputs_do_not_query_database(context, ingredients):
-    result = json.loads(find_products_for_step("Cleanser", ingredients, context))
-    assert "error" in result
-    context.invocation_state["product_service"].find_best_products.assert_not_called()
+def test_concurrent_completion_cannot_clear_the_three_call_limit(context):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Event
+    from agents.tools import _lookup
+
+    entered, release = Event(), Event()
+    def delayed(*args):
+        entered.set()
+        assert release.wait(timeout=3)
+        return {}
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        first = executor.submit(_lookup, "Cleanser", context, delayed)
+        assert entered.wait(timeout=3)
+        _lookup("Cleanser", context, lambda *args: {})
+        _lookup("Cleanser", context, lambda *args: {})
+        try:
+            with pytest.raises(ValueError, match="three"):
+                _lookup("Cleanser", context, lambda *args: {})
+        finally:
+            release.set()
+        assert first.result() == "{}"
+    state = context.invocation_state
+    assert state["discovery_calls"]["ingredients_Cleanser"] == 4
+    assert state["tool_errors"]["ingredients_Cleanser"] == "discovery_limit"

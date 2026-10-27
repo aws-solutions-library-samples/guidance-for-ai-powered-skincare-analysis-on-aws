@@ -5,6 +5,7 @@ from botocore.exceptions import (
     ReadTimeoutError,
 )
 from strands.types.exceptions import ModelThrottledException, StructuredOutputException
+from .search.errors import SearchUnavailable, SearchDeadlineExceeded
 
 
 # Keep the public codes stable; the browser owns the localized presentation.
@@ -15,6 +16,8 @@ ERRORS = {
     "GUARDRAIL_CONTENT": ("The safety check blocked content that is not allowed. Please try different photos. If this seems incorrect, share the reference below with support.", False),
     "GUARDRAIL_BLOCKED": ("A safety check blocked this analysis. If this seems incorrect, share the reference below with support.", False),
     "INVALID_INPUT": ("We could not read these photos. Please upload valid JPEG, PNG, GIF, or WebP images and try again.", False),
+    "INVALID_PREFERENCES": ("These ingredient preferences could not be applied. Check the selected ingredients, categories, market, and price limit.", False),
+    "NO_MATCHING_PRODUCTS": ("No products matched the selected ingredients and constraints. Adjust your preferences or try again.", False),
     "REQUEST_TOO_LARGE": ("These photos exceed the analysis limits. Use up to three images, each no larger than 1 MiB and 2048 pixels per side.", False),
     "RATE_LIMITED": ("The analysis service is busy. Please wait a minute and try again.", True),
     "TIMEOUT": ("The analysis took too long. Please try again.", True),
@@ -42,9 +45,9 @@ def classify_error(exc: Exception) -> AnalysisFailure:
     for error in chain:
         if isinstance(error, ModelThrottledException):
             return AnalysisFailure("RATE_LIMITED")
-        if isinstance(error, (TimeoutError, ReadTimeoutError, ConnectTimeoutError)):
+        if isinstance(error, (TimeoutError, ReadTimeoutError, ConnectTimeoutError, SearchDeadlineExceeded)):
             return AnalysisFailure("TIMEOUT")
-        if isinstance(error, (EndpointConnectionError, ConnectionClosedError)):
+        if isinstance(error, (EndpointConnectionError, ConnectionClosedError, SearchUnavailable)):
             return AnalysisFailure("SERVICE_UNAVAILABLE")
         if isinstance(error, ClientError):
             code = error.response.get("Error", {}).get("Code", "")

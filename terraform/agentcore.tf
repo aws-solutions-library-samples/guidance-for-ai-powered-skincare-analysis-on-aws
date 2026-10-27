@@ -171,14 +171,22 @@ resource "aws_bedrockagentcore_agent_runtime" "main" {
   }
 
   network_configuration {
-    network_mode = "PUBLIC"
+    network_mode = "VPC"
+    network_mode_config {
+      security_groups = [aws_security_group.search_clients.id]
+      subnets         = aws_subnet.search[*].id
+    }
   }
 
   environment_variables = {
-    AWS_REGION          = local.region
-    AWS_DEFAULT_REGION  = local.region
-    PRODUCTS_TABLE_NAME = aws_dynamodb_table.products.name
-    AGENTCORE_RUNTIME   = "true"
+    METRICS_DEPLOYMENT          = local.prefix
+    AWS_REGION                  = local.region
+    AWS_DEFAULT_REGION          = local.region
+    PRODUCTS_TABLE_NAME         = aws_dynamodb_table.canonical_products.name
+    CATALOG_METADATA_TABLE_NAME = aws_dynamodb_table.catalog_metadata.name
+    CATALOG_ID                  = local.search_config.catalog_id
+    OPENSEARCH_ENDPOINT         = "https://${aws_opensearch_domain.products.endpoint}"
+    AGENTCORE_RUNTIME           = "true"
     # Bedrock Guardrails configuration (applied in application code)
     GUARDRAIL_ID      = aws_bedrock_guardrail.smart_beauty.guardrail_id
     GUARDRAIL_VERSION = aws_bedrock_guardrail_version.smart_beauty.version
@@ -187,5 +195,8 @@ resource "aws_bedrockagentcore_agent_runtime" "main" {
   depends_on = [
     null_resource.trigger_agentcore_build,
     aws_iam_role_policy.agentcore_permissions,
+    aws_vpc_endpoint.search_apis,
+    aws_vpc_endpoint.search_s3,
+    aws_vpc_endpoint.search_dynamodb,
   ]
 }

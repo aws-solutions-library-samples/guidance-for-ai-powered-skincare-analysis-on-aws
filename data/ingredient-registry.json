@@ -1,0 +1,490 @@
+[
+  {
+    "ingredient_id": "demo-ba00ba652a6d2b87",
+    "display_name": "acetyl hexapeptide-8",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-68613d5bad3e3099",
+    "display_name": "adenosine",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-51a5a06c6fe57582",
+    "display_name": "allantoin",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-2458a5dd0759b43f",
+    "display_name": "aloe barbadensis leaf juice",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-4829f20cfe892824",
+    "display_name": "arbutin",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-cf676b9749afd1e5",
+    "display_name": "ascorbic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-0f07b2710a79c94e",
+    "display_name": "beta-glucan",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-46c4aa22b0be9c65",
+    "display_name": "betaine",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-da846b1173fe5355",
+    "display_name": "bisabolol",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-edfe4f53cf2dfb21",
+    "display_name": "bromelain",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-c1240b04e0f6f7cb",
+    "display_name": "centella asiatica extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-f50e9bad270b09b4",
+    "display_name": "ceramide ap",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-51c341a041f0f8fb",
+    "display_name": "ceramide eop",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-18ece9dc7add6688",
+    "display_name": "ceramide np",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-1050947db1c58b95",
+    "display_name": "chamomilla recutita extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-366993077ce453b4",
+    "display_name": "cholesterol",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-4c591c30afa43605",
+    "display_name": "citric acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-02dde2e409277020",
+    "display_name": "cocamidopropyl betaine",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-ade2d9e8ae37e7a0",
+    "display_name": "dimethicone",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-fe1960c68e3bd4da",
+    "display_name": "ferulic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-442d710ba1434c6d",
+    "display_name": "gluconolactone",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-26aa4a069f0dc6b2",
+    "display_name": "glycerin",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-b6e66b1f972f5d3c",
+    "display_name": "glycolic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-66e67fdbb192af63",
+    "display_name": "green tea extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-f61cd97368a1be59",
+    "display_name": "homosalate",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-8725d3dc3824300e",
+    "display_name": "iron oxides",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-6c369142c1d86fb8",
+    "display_name": "jojoba beads",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-bb79670f232023fa",
+    "display_name": "jojoba oil",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-1d1d7d90769a36e5",
+    "display_name": "lactic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-b2d9ffe3deb8b020",
+    "display_name": "lactobionic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-220f30c6000b7c39",
+    "display_name": "licorice root extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-a8bd6d494583d958",
+    "display_name": "madecassoside",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-e8e0069723c97c10",
+    "display_name": "niacinamide",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-f4aab55f9c9aa8f0",
+    "display_name": "oat kernel extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-a95198cb26d6781e",
+    "display_name": "octisalate",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-6f5b2ed16fb1e21d",
+    "display_name": "palmitoyl tripeptide-1",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-47b371db5738aab6",
+    "display_name": "panthenol",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-b1c5c7e234a699a6",
+    "display_name": "papain",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-ecc6d229a8eec0df",
+    "display_name": "phytosphingosine",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-b9b3c3af54e59eb8",
+    "display_name": "poloxamer 184",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-8a05a2479f5fd17d",
+    "display_name": "resveratrol",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-e538def51bcad42b",
+    "display_name": "retinol",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-06343beca2f3ba4e",
+    "display_name": "rice bran extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-0ba8049594cb7216",
+    "display_name": "rosa damascena flower water",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-efc838620462f228",
+    "display_name": "salicylic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-20d5acb332d11df0",
+    "display_name": "shea butter",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-603fec46699c2950",
+    "display_name": "silica",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-122521cec491ded6",
+    "display_name": "sodium cocoyl isethionate",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-caade8771cad3fae",
+    "display_name": "sodium hyaluronate",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-9bb65178ccbcb405",
+    "display_name": "squalane",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-b3e2bf1d876a27db",
+    "display_name": "tea tree oil",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-9bd3c18235bcf291",
+    "display_name": "titanium dioxide",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-aa056641e9869d24",
+    "display_name": "tocopherol",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-fc30c3873522f71e",
+    "display_name": "tranexamic acid",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-c49320df136f2386",
+    "display_name": "trehalose",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-3277540cdedee81f",
+    "display_name": "turmeric extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-bc2d2f7e0f540265",
+    "display_name": "vitamin e",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-029c327859d07c1e",
+    "display_name": "witch hazel extract",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-ab05ece49ce84d06",
+    "display_name": "zinc gluconate",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-fd0f5b5ac70cd3d2",
+    "display_name": "zinc oxide",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  },
+  {
+    "ingredient_id": "demo-827c92e0bdefb5de",
+    "display_name": "zinc pca",
+    "taxonomy_version": "demo-v1",
+    "aliases": [],
+    "review_state": "synthetic_fixture",
+    "provenance": "Fictional bundled catalog label; no independently reviewed equivalence or efficacy claim"
+  }
+]

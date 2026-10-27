@@ -54,6 +54,17 @@ test('streams through the real handler using verified identity and a server-owne
   assert.equal(calls.release.length, 1);
 });
 
+test('viewer trace headers are not copied into runtime invocation or diagnostic logs', async () => {
+  const input = event();
+  input.headers.traceparent = '00-11111111111111111111111111111111-2222222222222222-01';
+  input.headers.tracestate = 'viewer=untrusted-trace-state';
+  const { calls, metadata } = await run(input);
+  assert.equal(metadata.statusCode, 200);
+  assert.equal(calls.invoke[0].traceparent, undefined);
+  assert.equal(calls.invoke[0].tracestate, undefined);
+  assert.ok(!JSON.stringify(calls).includes('untrusted-trace-state'));
+});
+
 for (const [name, change] of [
   ['missing verifier', e => { delete e.requestContext.authorizer; }],
   ['wrong client', e => { e.requestContext.authorizer.claims.aud = 'other-client'; }],
@@ -116,6 +127,28 @@ test('quota-store failure fails closed without leaking provider details', async 
   assert.ok(!result.body.includes('SECRET') && !result.calls.logs.join().includes('SECRET'));
 });
 
+test('early errors trigger the response envelope and finish flushing before return', async () => {
+  const input = event();
+  input.body = JSON.stringify({ job_id: 'safe', images: [] });
+  let envelopeWritten = false;
+  let finished = false;
+  const result = await run(input, {
+    wrapResponse: (stream) => {
+      // Lambda's HTTP wrapper adds metadata on the first explicit write.
+      // Writable.end(data) can bypass that hook.
+      const write = stream.write.bind(stream);
+      stream.write = (...args) => { envelopeWritten = true; return write(...args); };
+      const sink = stream._write.bind(stream);
+      stream._write = (...args) => setTimeout(() => sink(...args), 5);
+      stream.on('finish', () => { finished = true; });
+      return stream;
+    },
+  });
+  assert.equal(envelopeWritten, true);
+  assert.equal(finished, true);
+  assert.equal(JSON.parse(result.body).code, 'INVALID_INPUT');
+});
+
 test('a definite runtime rejection releases the lease and masks provider text', async () => {
   const result = await run(event(), { invoke: async () => {
     throw Object.assign(new Error('SECRET role ARN'), { name: 'AccessDeniedException' });
@@ -146,4 +179,70 @@ test('an application-level SSE failure finishes normally and releases the lease'
   }) });
   assert.equal(result.calls.release.length, 1);
   assert.equal(JSON.parse(result.body.slice(6)).code, 'INVALID_INPUT');
+});
+
+test('v2 constraints survive the verified proxy without client-controlled search context', async () => {
+  const input = event();
+  input.body = JSON.stringify({ ...JSON.parse(input.body), api_version: 2, preferences: {
+    excluded_ingredient_ids: ['b'], must_have_by_category: [{ category_id: 'Serum', ingredient_ids: ['c'] }],
+  } });
+  const result = await run(input);
+  const forwarded = JSON.parse(result.calls.invoke[0].payload);
+  assert.equal(forwarded.api_version, 2);
+  assert.deepEqual(forwarded.preferences.must_have_by_category, [{ category_id: 'Serum', ingredient_ids: ['c'] }]);
+  const invalid = event();
+  invalid.body = JSON.stringify({ ...JSON.parse(input.body), preferences: { index_generation: 'attacker' } });
+  const denied = await run(invalid);
+  assert.equal(JSON.parse(denied.body).code, 'INVALID_PREFERENCES');
+  assert.equal(denied.calls.acquire.length + denied.calls.invoke.length, 0);
+});
+
+test('ingredient lookup uses verified identity and its own quota without invoking the model', async () => {
+  const input = event(); input.resource = '/ingredients/lookup'; input.body = '{}';
+  const acquired = [], released = [];
+  const result = await run(input, {
+    lookup: async () => ({ categories: ['Cleanser', 'Serum'] }),
+    lookupLimits: {
+      acquire: async identity => { acquired.push(identity); return 'lookup-lease'; },
+      release: async lease => released.push(lease),
+    },
+  });
+  assert.equal(result.metadata.headers['Content-Type'], 'application/json');
+  assert.deepEqual(acquired, [`${config.issuer}\0user-one\0ingredient-lookup`]);
+  assert.deepEqual(released, ['lookup-lease']);
+  assert.equal(result.calls.invoke.length + result.calls.acquire.length, 0);
+});
+
+test('successful ingredient lookup writes the HTTP envelope and flushes before returning', async () => {
+  const input = event(); input.resource = '/ingredients/lookup'; input.body = '{}';
+  let envelopeWritten = false;
+  let finished = false;
+  let leaseReleasedAfterFlush = false;
+  const value = { categories: ['Cleanser', 'Serum'] };
+  const result = await run(input, {
+    lookup: async () => value,
+    lookupLimits: {
+      acquire: async () => 'lookup-lease',
+      release: async () => { leaseReleasedAfterFlush = finished; },
+    },
+    wrapResponse: stream => {
+      const write = stream.write.bind(stream);
+      stream.write = (...args) => { envelopeWritten = true; return write(...args); };
+      const sink = stream._write.bind(stream);
+      stream._write = (...args) => setTimeout(() => sink(...args), 5);
+      stream.on('finish', () => { finished = true; });
+      return stream;
+    },
+  });
+  assert.equal(envelopeWritten, true);
+  assert.equal(finished, true);
+  assert.equal(leaseReleasedAfterFlush, true);
+  assert.deepEqual(JSON.parse(result.body), value);
+});
+
+test('v1 keeps its smaller envelope budget while v2 allows bounded preference metadata', async () => {
+  const legacy = event(); legacy.body = `${' '.repeat(5000)}${legacy.body}`;
+  assert.equal(JSON.parse((await run(legacy)).body).code, 'REQUEST_TOO_LARGE');
+  const v2 = event(); v2.body = `${' '.repeat(5000)}${JSON.stringify({ ...JSON.parse(v2.body), api_version: 2 })}`;
+  assert.equal((await run(v2)).metadata.statusCode, 200);
 });

@@ -1,165 +1,83 @@
-"""CompileNode — deterministic graph node that assembles the final routine.
+"""Finalize canonical records once, then assemble every planned step."""
 
-This node runs at the end of Phase 2 (prescription) after all parallel
-ingredient/product chains complete. It reads their structured Pydantic
-outputs from invocation_state and stitches them into a single
-CompiledRoutine JSON. No LLM is involved — the assembly is purely
-deterministic.
-
-Flow:
-    ingredients_{step} → products_{step} ──┐
-    ingredients_{step} → products_{step} ──┼── CompileNode → CompiledRoutine JSON
-    ingredients_{step} → products_{step} ──┘
-"""
-
-import logging
+import asyncio
 from typing import Any
 
-from strands.agent.agent_result import AgentResult
-from strands.multiagent.base import (
-    MultiAgentBase,
-    MultiAgentResult,
-    NodeResult,
-    Status,
-)
-from strands.types.content import ContentBlock, Message
-from strands.types.event_loop import Metrics, Usage
+from strands.multiagent.base import MultiAgentBase
 
-from .models import (
-    CompiledRoutine,
-    CompiledStep,
-    IngredientsAnalysisOutput,
-    ProductAnalysisOutput,
-    RoutineStep,
-    StepAnalysisResult,
-)
-from .catalog_binding import bind_products
-
-logger = logging.getLogger(__name__)
+from .catalog_binding import render_products
+from .errors import AnalysisFailure
+from .models import CompiledRoutine, CompiledStep, ProductAnalysisOutput, StepAnalysisResult
+from .recommendation_nodes import completed
 
 
 class CompileNode(MultiAgentBase):
-    """Deterministic node that assembles structured outputs into CompiledRoutine JSON.
-
-    Reads IngredientsAnalysisOutput and ProductAnalysisOutput Pydantic models
-    from invocation_state (populated by the orchestrator as nodes complete).
-    Rejects unresolved tool failures and missing or mismatched step outputs.
-    """
-
-    def __init__(self) -> None:
+    def __init__(self):
         super().__init__()
         self.id = "compile"
 
-    async def invoke_async(
-        self,
-        task: Any,
-        invocation_state: dict[str, Any] | None = None,
-        **kwargs: Any,
-    ) -> MultiAgentResult:
-        """Read structured outputs from invocation_state and assemble CompiledRoutine."""
-        invocation_state = invocation_state or {}
-
-        errors = invocation_state.get("tool_errors", {})
-        if errors:
-            failed_nodes = ", ".join(sorted(errors))
-            raise ValueError(f"Catalog lookup failed for: {failed_nodes}")
-
-        plan = StepAnalysisResult.model_validate(
-            invocation_state.get("step_analysis_data")
+    async def invoke_async(self, task: Any, invocation_state=None, **kwargs):
+        state = invocation_state or {}
+        if state.get("tool_errors"):
+            raise ValueError("Catalog tool failures remain unresolved")
+        plan = StepAnalysisResult.model_validate(state.get("step_analysis_data"))
+        node_ids = [f"products_{step.step_name}" for step in plan.routine_steps]
+        ingredients = state.get("ingredients_outputs", {})
+        outputs = state.get("products_outputs", {})
+        searches = state.get("search_results", {})
+        for step, node_id in zip(plan.routine_steps, node_ids, strict=True):
+            if (
+                node_id not in outputs or node_id not in searches
+                or f"ingredients_{step.step_name}" not in ingredients
+            ):
+                raise ValueError("Missing recommendation output")
+            # Refuse malformed/misbound outputs before any final reads.
+            output = ProductAnalysisOutput.model_validate(outputs[node_id].model_dump())
+            result = searches[node_id]
+            if (
+                output.step_name != step.step_name
+                or result.request.category_id != step.step_name
+                or result.request.request_id != state["request_id"]
+                or [p.product_id for p in output.top_recommendations]
+                != [p.product.product_id for p in result.products]
+            ):
+                raise ValueError("Recommendation binding changed")
+        finalized = await asyncio.to_thread(
+            state["product_service"].finalize, tuple(searches[node_id] for node_id in node_ids),
         )
-
-        # Read structured outputs from invocation_state
-        ingredients_outputs: dict[str, IngredientsAnalysisOutput] = (
-            invocation_state.get("ingredients_outputs", {})
-        )
-        products_outputs: dict[str, ProductAnalysisOutput] = invocation_state.get(
-            "products_outputs", {}
-        )
-
-        logger.info(
-            "CompileNode: %d ingredients outputs, %d products outputs",
-            len(ingredients_outputs),
-            len(products_outputs),
-        )
-
-        compiled_steps = self._build_steps(
-            plan.routine_steps, ingredients_outputs, products_outputs,
-            invocation_state.get("trusted_products", {}),
-        )
-
-        routine = CompiledRoutine(
-            user_profile=plan.user_profile, routine_steps=compiled_steps
-        )
-        routine_json = routine.model_dump_json()
-
-        logger.info("CompileNode produced routine with %d steps", len(compiled_steps))
-
-        # Wrap in AgentResult → NodeResult → MultiAgentResult
-        agent_result = AgentResult(
-            stop_reason="end_turn",
-            message=Message(
-                role="assistant", content=[ContentBlock(text=routine_json)]
-            ),
-            metrics=None,
-            state={},
-        )
-
-        node_result = NodeResult(
-            result=agent_result,
-            execution_time=0,
-            status=Status.COMPLETED,
-            accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
-            accumulated_metrics=Metrics(latencyMs=0),
-            execution_count=1,
-        )
-
-        return MultiAgentResult(
-            status=Status.COMPLETED,
-            results={self.id: node_result},
-            accumulated_usage=Usage(inputTokens=0, outputTokens=0, totalTokens=0),
-            accumulated_metrics=Metrics(latencyMs=0),
-            execution_count=1,
-        )
-
-    def _build_steps(
-        self,
-        steps: list[RoutineStep],
-        ingredients_outputs: dict[str, IngredientsAnalysisOutput],
-        products_outputs: dict[str, ProductAnalysisOutput],
-        trusted_products: dict,
-    ) -> list[CompiledStep]:
-        """Build CompiledStep list from structured outputs.
-
-        Args:
-            steps: Ordered, validated routine steps from step_analysis.
-            ingredients_outputs: Keyed by node_id (e.g. "ingredients_Cleanser").
-            products_outputs: Keyed by node_id (e.g. "products_Cleanser").
-
-        Returns:
-            List of fully populated CompiledStep objects.
-        """
-        compiled: list[CompiledStep] = []
-
-        for step in steps:
-            step_name = step.step_name
-            ing_output = ingredients_outputs.get(f"ingredients_{step_name}")
-            prod_output = products_outputs.get(f"products_{step_name}")
-            if ing_output is None or prod_output is None:
-                raise ValueError(f"Missing recommendation output for {step_name}")
-            if ing_output.step_name != step_name or prod_output.step_name != step_name:
-                raise ValueError(f"Recommendation output does not match step {step_name}")
-            if not ing_output.key_ingredients or not prod_output.top_recommendations:
-                raise ValueError(f"No recommendations produced for {step_name}")
-
-            compiled.append(
-                CompiledStep(
-                    step_name=step_name,
-                    when=step.when,
-                    description=step.justification,
-                    why_for_you=step.why_this_step_for_you,
-                    ingredients=ing_output.key_ingredients,
-                    products=bind_products(prod_output, f"products_{step_name}", trusted_products).top_recommendations,
-                )
+        if len(finalized) != len(node_ids):
+            raise ValueError("Finalization omitted a planned step")
+        compiled = []
+        for step, node_id, result in zip(plan.routine_steps, node_ids, finalized, strict=True):
+            previous = searches[node_id]
+            if result.request != previous.request:
+                raise ValueError("Finalization changed the bound search request")
+            ingredient_output = ingredients[f"ingredients_{step.step_name}"]
+            if ingredient_output.step_name != step.step_name or not ingredient_output.key_ingredients:
+                raise ValueError("Ingredient output is empty or belongs to another step")
+            names = {item.ingredient_id: item.name for item in ingredient_output.key_ingredients}
+            explanation = state.get("product_explanations", {}).get(node_id)
+            if explanation is not None:
+                # Keep approved explanations only for surviving IDs in original order.
+                survivors = {item.product.product_id for item in result.products}
+                explanation = explanation.model_copy(update={
+                    "products": [item for item in explanation.products if item.product_id in survivors],
+                }) if survivors else None
+            output = render_products(
+                result, names, explanation,
+                explanation_hashes=state.get("explanation_hashes", {}).get(node_id),
+                currency_minor_units=state["product_service"].config.currency_minor_units,
             )
-
-        return compiled
+            if state.get("api_version", 1) == 1 and output.status == "no_match":
+                raise AnalysisFailure("NO_MATCHING_PRODUCTS")
+            compiled.append(CompiledStep(
+                step_name=step.step_name, when=step.when,
+                description=step.justification, why_for_you=step.why_this_step_for_you,
+                ingredients=ingredient_output.key_ingredients,
+                products=output.top_recommendations,
+                recommendation_status=output.status, no_match_reason=output.reason,
+            ))
+        return completed(self.id, CompiledRoutine(
+            user_profile=plan.user_profile, routine_steps=compiled,
+            api_version=state.get("api_version", 1), applied_preferences=state["preferences"],
+        ))

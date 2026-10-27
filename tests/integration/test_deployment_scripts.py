@@ -29,17 +29,21 @@ if command == "aws":
         print(os.environ.get("PROFILE_REGION", "eu-west-1"))
     elif args[:2] == ["sts", "get-caller-identity"]:
         print("123456789012")
-    elif args[:2] == ["dynamodb", "scan"]:
-        if os.environ.get("FAIL_SCAN"): sys.exit(7)
-        print(os.environ.get("ITEM_COUNT", "0"))
+    elif args[:2] == ["apigateway", "get-account"]:
+        if os.environ.get("FAIL_LOGGING_LOOKUP"): sys.exit(6)
+        print(os.environ.get("EXISTING_LOGGING_ROLE", "None"))
 elif command == "terraform":
     if args[0] == "apply" and os.environ.get("FAIL_APPLY"): sys.exit(8)
     if args[0] == "output":
         print({"app_url":"https://example.invalid", "api_url":"https://example.invalid/api",
             "frontend_bucket":"test-bucket", "products_table_name":"test-products",
+            "catalog_metadata_table_name":"test-metadata", "catalog_outbox_table_name":"test-outbox",
+            "catalog_admin_function_name":"test-admin",
             "aws_region":"eu-west-1"}.get(args[-1], "test-value"))
 elif command == "npm" and args == ["run", "typecheck"] and os.environ.get("FAIL_TYPES"):
     sys.exit(9)
+elif command == "uv" and "scripts/migrate_products.py" in args and os.environ.get("FAIL_PUBLISH"):
+    sys.exit(7)
 '''
 
 
@@ -96,18 +100,21 @@ def test_deploy_uses_one_region_for_infrastructure_and_migration(project, env_va
     assert "-var-file=env-prod.tfvars" in applies[-1]["args"]
     migration = next(call for call in calls if call["command"] == "uv" and "scripts/migrate_products.py" in call["args"])
     assert migration["region"] == migration["default_region"] == region
-    scan = next(call for call in calls if call["command"] == "aws" and call["args"][:2] == ["dynamodb", "scan"])
-    assert scan["args"][scan["args"].index("--region") + 1] == region
+    assert not any(call["command"] == "aws" and call["args"][:2] == ["dynamodb", "scan"] for call in calls)
+    assert "--demo-if-empty" in migration["args"] and "--wait-ready" in migration["args"]
+    for flag, value in (("--metadata-table", "test-metadata"), ("--outbox-table", "test-outbox"), ("--admin-function", "test-admin")):
+        assert migration["args"][migration["args"].index(flag) + 1] == value
     npm_calls = [call["args"] for call in calls if call["command"] == "npm"]
     assert npm_calls == [["ci", "--omit=dev"], ["run", "build"], ["ci"], ["run", "build"]]
 
 
-@pytest.mark.parametrize("failure", ["FAIL_SCAN", "FAIL_APPLY"])
+@pytest.mark.parametrize("failure", ["FAIL_PUBLISH", "FAIL_APPLY"])
 def test_deploy_does_not_continue_after_cloud_failure(project, failure):
     project[1][failure] = "1"
     result, calls = run_script(project, "deploy.sh", "dev")
     assert result.returncode != 0
-    assert not any("scripts/migrate_products.py" in call["args"] for call in calls)
+    if failure == "FAIL_APPLY":
+        assert not any("scripts/migrate_products.py" in call["args"] for call in calls)
     assert not any(call["command"] == "npm" and call["cwd"].endswith("/frontend") for call in calls)
     assert not any(call["command"] == "aws" and call["args"][:2] == ["s3", "sync"] for call in calls)
 
@@ -138,6 +145,35 @@ def test_test_deployment_uses_its_own_state_and_environment(project):
     assert "-backend-config=key=test/terraform.tfstate" in inits[-1]["args"]
     applies = [call for call in calls if call["command"] == "terraform" and call["args"][0] == "apply"]
     assert "-var=environment=test" in applies[-1]["args"]
+
+
+def test_deploy_preserves_existing_account_logging(project):
+    project[1]["EXISTING_LOGGING_ROLE"] = "arn:aws:iam::123456789012:role/another-application"
+    result, calls = run_script(project, "deploy.sh", "test")
+    assert result.returncode == 0, result.stdout + result.stderr
+    applies = [c for c in calls if c["command"] == "terraform" and c["args"][0] == "apply"]
+    assert len(applies) == 1
+    assert not any(c["command"] == "terraform" and c["cwd"].endswith("/shared") for c in calls)
+    assert "-var=environment=test" in applies[0]["args"]
+
+
+def test_deploy_stops_if_account_logging_cannot_be_inspected(project):
+    project[1]["FAIL_LOGGING_LOOKUP"] = "1"
+    result, calls = run_script(project, "deploy.sh", "test")
+    assert result.returncode != 0
+    assert not any(c["command"] == "terraform" and c["args"][0] == "apply" for c in calls)
+
+
+@pytest.mark.parametrize("script,operation", [("deploy.sh", "apply"), ("destroy.sh", "destroy")])
+def test_local_overrides_follow_environment_defaults_but_cannot_change_target(project, script, operation):
+    directory, _ = project
+    (directory / "terraform" / "terraform.tfvars").write_text('custom_domain = "local.example.com"\n')
+    result, calls = run_script(project, script, "prod", input="yes\n")
+    assert result.returncode == 0, result.stderr
+    args = [c["args"] for c in calls if c["command"] == "terraform" and c["args"][0] == operation][-1]
+    assert args.index("-var-file=env-prod.tfvars") < args.index("-var-file=terraform.tfvars")
+    assert args.index("-var-file=terraform.tfvars") < args.index("-var=environment=prod")
+    assert args.index("-var-file=terraform.tfvars") < args.index("-var=aws_region=eu-west-1")
 
 
 @pytest.mark.parametrize("script", ["deploy.sh", "destroy.sh"])
@@ -220,3 +256,24 @@ def test_packaging_includes_selected_files_and_removes_deleted_archive_entries(t
         with zipfile.ZipFile(project / "terraform" / ".build" / "agent-code.zip") as archive:
             assert set(archive.namelist()) == expected
             assert archive.read("catalog.py") == b"catalog = 'current'\n"
+
+
+def test_packaging_is_readable_by_container_user_with_restrictive_umask(tmp_path):
+    project = tmp_path / "package-project"
+    scripts = project / "terraform" / "scripts"
+    scripts.mkdir(parents=True)
+    script = scripts / "package-agent-code.sh"
+    shutil.copy2(ROOT / "terraform" / "scripts" / script.name, script)
+    source = project / "agents" / "example.py"
+    source.parent.mkdir()
+    source.write_text("example = True\n")
+    source.chmod(0o600)
+    completed = subprocess.run(
+        ["/bin/bash", str(script), "agents/example.py"], cwd=project,
+        text=True, capture_output=True, timeout=10, umask=0o077,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    with zipfile.ZipFile(project / "terraform" / ".build" / "agent-code.zip") as archive:
+        assert (archive.getinfo("agents/").external_attr >> 16) & 0o777 == 0o755
+        assert (archive.getinfo("agents/example.py").external_attr >> 16) & 0o777 == 0o644
+    assert source.stat().st_mode & 0o777 == 0o600

@@ -15,7 +15,32 @@ output "api_url" {
 
 output "products_table_name" {
   description = "DynamoDB Products Table (for data migration)"
-  value       = aws_dynamodb_table.products.name
+  value       = aws_dynamodb_table.canonical_products.name
+}
+
+output "catalog_metadata_table_name" {
+  value = aws_dynamodb_table.catalog_metadata.name
+}
+
+output "catalog_outbox_table_name" {
+  value = aws_dynamodb_table.catalog_outbox.name
+}
+
+output "catalog_admin_function_name" {
+  value = aws_lambda_function.catalog["admin"].function_name
+}
+
+output "catalog_maintenance_function_name" {
+  value = aws_lambda_function.catalog["maintenance"].function_name
+}
+
+output "search_dashboard_name" {
+  value = aws_cloudwatch_dashboard.search.dashboard_name
+}
+
+output "catalog_publisher_policy_arn" {
+  description = "Attach to the trusted supplier feed identity; not attached to application roles"
+  value       = aws_iam_policy.catalog_publisher.arn
 }
 
 output "agentcore_ecr_repo_uri" {
@@ -79,4 +104,29 @@ output "frontend_env_config" {
     VITE_COGNITO_CLIENT_ID=${aws_cognito_user_pool_client.frontend.id}
     VITE_API_URL=${var.custom_domain != "" ? "https://${var.custom_domain}/api" : "https://${aws_cloudfront_distribution.main.domain_name}/api"}
   EOT
+}
+
+output "deployment_account_id" {
+  description = "Account containing this deployment (used to guard live validation)"
+  value       = local.account_id
+}
+
+output "deployment_environment" {
+  description = "Environment selected for this state"
+  value       = var.environment
+}
+
+output "analysis_limits_table_name" {
+  description = "Per-user admission controls table"
+  value       = aws_dynamodb_table.analysis_limits.name
+}
+
+output "api_proxy_function_name" {
+  description = "Streaming proxy function used by release validation"
+  value       = aws_lambda_function.api_proxy.function_name
+}
+
+output "agent_source_hash" {
+  description = "Hash used to identify the packaged agent source and image build"
+  value       = local.agent_source_hash
 }

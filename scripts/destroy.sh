@@ -29,7 +29,9 @@ print_warning() { echo -e "${YELLOW}⚠️  $1${NC}"; }
 print_warning "This will DELETE all Smart Beauty ($ENV) resources:"
 echo "   • AgentCore Runtime + Endpoint"
 echo "   • API Gateway, CloudFront"
-echo "   • DynamoDB product table (all data)"
+echo "   • Canonical, metadata, outbox and usage-limit tables (all data)"
+echo "   • Private OpenSearch domain, indices and search networking"
+echo "   • Catalog publication and maintenance functions"
 echo "   • S3 buckets, ECR repository"
 echo "   • CodeBuild project"
 echo "   • WAF, IAM roles, CloudWatch logs"
@@ -61,10 +63,14 @@ terraform init -input=false -reconfigure \
   -backend-config="encrypt=true"
 
 TFVARS_FILE="env-${ENV}.tfvars"
-TFVARS_ARGS=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
+TFVARS_ARGS=()
 if [ -f "$TFVARS_FILE" ]; then
-  TFVARS_ARGS=("-var-file=$TFVARS_FILE" "${TFVARS_ARGS[@]}")
+  TFVARS_ARGS+=("-var-file=$TFVARS_FILE")
 fi
+if [ -f terraform.tfvars ]; then
+  TFVARS_ARGS+=("-var-file=terraform.tfvars")
+fi
+TFVARS_ARGS+=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
 
 terraform destroy -auto-approve -input=false "${TFVARS_ARGS[@]}"
 

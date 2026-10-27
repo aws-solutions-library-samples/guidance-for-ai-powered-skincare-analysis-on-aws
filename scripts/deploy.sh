@@ -68,23 +68,31 @@ print_success "Account: $AWS_ACCOUNT  Region: $AWS_REGION"
 cd "$PROJECT_ROOT/api_proxy"
 npm ci --omit=dev
 npm run build
+cd "$PROJECT_ROOT"
+uv run --locked python scripts/build-catalog-worker.py
 
 # ──────────────────────────────────────────────
 # 3. Terraform apply (infra + AgentCore + CodeBuild)
 # ──────────────────────────────────────────────
-print_step "3/6  Terraform — shared account-level resources"
+print_step "3/6  Checking shared API Gateway logging"
 
-cd "$PROJECT_ROOT/terraform/shared"
-
-terraform init -input=false -reconfigure \
-  -backend-config="bucket=smart-beauty-tfstate-${AWS_ACCOUNT}" \
-  -backend-config="key=shared/terraform.tfstate" \
-  -backend-config="region=us-east-1" \
-  -backend-config="dynamodb_table=smart-beauty-tfstate-lock" \
-  -backend-config="encrypt=true"
-
-terraform apply -auto-approve -input=false -var="aws_region=$AWS_REGION"
-print_success "Shared resources ready"
+# This setting is shared by every REST API in the account/region. Preserve
+# another application's role instead of replacing it as a side effect.
+LOGGING_ROLE=$(aws apigateway get-account --region "$AWS_REGION" \
+  --query cloudwatchRoleArn --output text)
+if [[ -n "$LOGGING_ROLE" && "$LOGGING_ROLE" != "None" && "$LOGGING_ROLE" != "null" ]]; then
+  print_info "Reusing the existing account-level API Gateway logging role"
+else
+  cd "$PROJECT_ROOT/terraform/shared"
+  terraform init -input=false -reconfigure \
+    -backend-config="bucket=smart-beauty-tfstate-${AWS_ACCOUNT}" \
+    -backend-config="key=shared/terraform.tfstate" \
+    -backend-config="region=us-east-1" \
+    -backend-config="dynamodb_table=smart-beauty-tfstate-lock" \
+    -backend-config="encrypt=true"
+  terraform apply -auto-approve -input=false -var="aws_region=$AWS_REGION"
+  print_success "Shared logging resources ready"
+fi
 
 print_step "4/6  Terraform — provisioning environment infrastructure"
 
@@ -100,10 +108,14 @@ terraform init -input=false -reconfigure \
 # Single apply: infrastructure and the AgentCore image/runtime.
 # Load committed environment settings and optional local terraform.tfvars.
 TFVARS_FILE="env-${ENV}.tfvars"
-TFVARS_ARGS=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
+TFVARS_ARGS=()
 if [ -f "$TFVARS_FILE" ]; then
-  TFVARS_ARGS=("-var-file=$TFVARS_FILE" "${TFVARS_ARGS[@]}")
+  TFVARS_ARGS+=("-var-file=$TFVARS_FILE")
 fi
+if [ -f terraform.tfvars ]; then
+  TFVARS_ARGS+=("-var-file=terraform.tfvars")
+fi
+TFVARS_ARGS+=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
 
 if ! terraform apply -auto-approve -input=false "${TFVARS_ARGS[@]}"; then
   print_error "Terraform apply failed"
@@ -121,6 +133,9 @@ API_URL=$(terraform output -raw api_url)
 FRONTEND_BUCKET=$(terraform output -raw frontend_bucket)
 CF_DISTRIBUTION_ID=$(terraform output -raw cloudfront_distribution_id)
 PRODUCTS_TABLE=$(terraform output -raw products_table_name)
+CATALOG_METADATA_TABLE=$(terraform output -raw catalog_metadata_table_name)
+CATALOG_OUTBOX_TABLE=$(terraform output -raw catalog_outbox_table_name)
+CATALOG_ADMIN_FUNCTION=$(terraform output -raw catalog_admin_function_name)
 AGENTCORE_RUNTIME_ARN=$(terraform output -raw agentcore_runtime_arn)
 COGNITO_USER_POOL_ID=$(terraform output -raw cognito_user_pool_id)
 COGNITO_CLIENT_ID=$(terraform output -raw cognito_user_pool_client_id)
@@ -131,18 +146,13 @@ print_success "AgentCore Runtime: $AGENTCORE_RUNTIME_ARN"
 cd "$PROJECT_ROOT"
 
 # ──────────────────────────────────────────────
-# 4. Migrate products to DynamoDB (if empty)
+# 4. Initialize exact search and publish the demo only into an empty v2 catalog.
 # ──────────────────────────────────────────────
-print_step "5/6  Migrating products to DynamoDB"
-
-ITEM_COUNT=$(aws dynamodb scan --table-name "$PRODUCTS_TABLE" --region "$AWS_REGION" --select COUNT --query 'Count' --output text)
-
-if [ "$ITEM_COUNT" -gt 0 ]; then
-  print_info "Table already has $ITEM_COUNT products — skipping migration"
-else
-  uv run --locked python scripts/migrate_products.py "$PRODUCTS_TABLE"
-  print_success "Products migrated"
-fi
+print_step "5/6  Initializing exact product search"
+uv run --locked python scripts/migrate_products.py "$PRODUCTS_TABLE" \
+  --metadata-table "$CATALOG_METADATA_TABLE" --outbox-table "$CATALOG_OUTBOX_TABLE" \
+  --admin-function "$CATALOG_ADMIN_FUNCTION" --demo-if-empty --wait-ready
+print_success "Canonical catalog and exact search are ready"
 
 # ──────────────────────────────────────────────
 # 5. Build & deploy frontend + CloudFront invalidation

@@ -204,7 +204,7 @@ def run_experiment(args):
             str(path.relative_to(ROOT)): hashlib.sha256(path.read_bytes()).hexdigest()
             for path in [
                 *sorted(Path(__file__).parent.glob("*.py")),
-                ROOT / "agents/product_repository.py",
+                ROOT / "experiments/search/legacy_repository.py",
             ]
         },
         "candidate_k": k, "rerank_k": args.rerank_k,

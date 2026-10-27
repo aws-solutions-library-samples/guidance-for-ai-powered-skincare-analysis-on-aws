@@ -21,7 +21,7 @@ it('shows explicit empty recommendations instead of permanent loading placeholde
   results.routine_steps[0].products = [];
   render(<ResultsPage results={results} onStartOver={vi.fn()} />);
   expect(screen.getByText('No ingredients were recommended for this step.')).toBeDefined();
-  expect(screen.getByText('No matching products were found for this step.')).toBeDefined();
+  expect(screen.getByText('No products matched the selected ingredients and applied constraints for this step.')).toBeDefined();
   expect(screen.queryByText(/Loading|Finding products|Selecting ingredients/i)).toBeNull();
 });
 

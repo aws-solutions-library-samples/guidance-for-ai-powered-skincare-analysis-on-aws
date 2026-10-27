@@ -1,15 +1,23 @@
 # Architecture
 
-![Approved Smart Beauty reference architecture](architecture.png)
+![Previously approved Smart Beauty reference architecture](architecture.png)
 
 [View the reference architecture at full resolution](architecture.png)
 
-This image is the unchanged export of the approved reference-architecture PPTX. The application has one authenticated analysis endpoint and one streaming result path through a Lambda proxy. The flow below expands on the diagram's seven numbered steps. Background job polling, PDF services, translation agents, and federated sign-in are not included.
+This image is the unchanged export of the previously approved reference-architecture
+PPTX. Its seven numbered steps cover the original application, including the Lambda
+proxy. Private indexed search and the publication pipeline extend that architecture
+and are documented below.
+
+The application has authenticated analysis and ingredient-lookup endpoints.
+Analysis streams through a Lambda proxy. The reference image does not yet include
+the exact-search network or publication paths. Background job polling, PDF services,
+translation agents, and federated sign-in are not included.
 
 ## Request flow
 
 1. The React app signs in an administrator-created Cognito user and captures or uploads three photos.
-2. CloudFront serves the app from S3 and routes `/api/analyze` through WAF and API Gateway.
+2. CloudFront serves the app from S3 and routes `/api/analyze` and `/api/ingredients/lookup` through WAF and API Gateway. Exact ingredient lookup has its own allowance and makes no model call.
 3. API Gateway validates the Cognito token. The Lambda streaming proxy checks verified authorizer claims, acquires a per-user allowance and active-analysis lease in DynamoDB, creates a server-owned session ID, and invokes AgentCore with IAM credentials.
 4. `agentcore_entrypoint.py` validates the payload and normalizes 1–3 images, each no more than 1 MiB or 2048 pixels per side. The request's `job_id` is a log correlation value, not a stored job.
 5. `agents/orchestrator.py` streams the two-phase graph. The entrypoint serializes graph events into the AgentCore SSE transport.
@@ -19,15 +27,41 @@ This image is the unchanged export of the approved reference-architecture PPTX. 
 
 The diagnose graph runs `skin_analysis` followed by `step_analysis`. Its output is a validated plan with 2–8 unique steps, matching summary counts, supported timing values, and categories present in `data/catalog.yaml`. Skin metrics are constrained to 0–100.
 
-For each planned step, the prescribe graph runs an ingredients agent followed by a products agent. Those chains run concurrently and converge on `CompileNode` after their dependencies complete. Compilation is deterministic: it reuses validated output models in plan order and makes no additional LLM request.
+For each planned step, the prescribe graph validates the ingredient agent's canonical IDs, selects products deterministically, and requests an explanation of those approved products. Those chains run concurrently and converge on `CompileNode`. Compilation keeps plan order and makes no additional model request.
 
-Agent tools query `ProductService` in `agents/product_repository.py`. Queries consume all pages before ingredient aggregation or ranking. Product ranking uses the earliest matching ingredient positions, weighted by `1 / (position + 1)`.
+Ingredient tools make at most three bounded discovery calls per step. Their common-ingredient summary contains at most 30 entries and remains advisory; exact registry lookup can resolve other ingredients. Related vitamins and derivatives are distinct unless an explicitly reviewed alias denotes the same identity.
 
-Each product recommendation must reference a stable ID returned by the current step's successful query. Catalog binding restores trusted product fields and restricts image paths before intermediate and final results are emitted. Both model clients apply the configured guardrail with typed block handling.
+`ProductService` pins one configuration and physical index generation per routine. One OpenSearch query returns at most 100 candidates, sorted by distinct preferred ingredient count and then product ID. Category must-haves are an AND; exclusions apply to every step. Exclusions require both a complete ingredient list and complete identity resolution. Market, currency, price and availability constraints use explicit canonical facts.
 
-Category-wide pagination and scoring are the current demo baseline. They have not been validated at large catalog sizes or production throughput; the search specification describes proposed replacement and evaluation work.
+An initial canonical read covers ten candidates. At most one refill covers the remaining candidates. The server selects at most three products per step and rejects changed matching facts. The compiler rereads at most 24 products once before the final response. Display changes refresh facts and invalidate old explanations. Model-produced product IDs cannot replace, reorder or reduce the approved list.
 
-Empty data is distinct from a failed database request. Lookup failures propagate and remain recorded per step until a successful retry clears them. Missing, mismatched, empty, or unresolved failed outputs prevent successful compilation.
+API v2 completes matched and no-match steps explicitly. Legacy v1 keeps photos-only input and reports a terminal `NO_MATCHING_PRODUCTS` error when needed. Dependency failures, stale readiness and partial search results are service failures. Explanation timeouts/provider failures use factual templates; guardrail intervention remains terminal.
+
+## Catalog publication and maintenance
+
+The trusted publisher atomically writes the canonical product, immutable outbox
+event and one of 16 source counters. Stable product IDs choose their shard
+deterministically. Supplier revisions order updates to a product. A worker leases
+one shard, writes full external-version documents and refreshes the index before
+acknowledging each generation independently. Stream notifications accelerate work;
+minute schedules recover missed notifications from the durable outbox.
+
+A separate maintenance role performs resumable backfills and reconciliation in
+both directions, including hashes and tombstones. Equal-revision conflicts are
+quarantined; missing/older projections can be repaired by authoritative replay.
+Ingredient counts use paginated composite aggregation over a fixed PIT snapshot.
+The maintenance worker refreshes readiness during each scheduled invocation.
+Missing/stale source health, integrity failures and overdue reconciliation prevent
+admission. A live feed requires a fresh heartbeat; an immutable snapshot has an
+explicitly different health mode.
+
+The skin-analysis agent uses Claude Sonnet 5.5; planning, ingredients, and product agents use Claude Haiku 5.5. Strands invokes Bedrock ConverseStream with native strict tool schemas. Pydantic and catalog checks enforce value and business constraints after generation. See [model configuration](model-configuration.md) for reasoning settings, schema compatibility, and upgrade tests.
+
+Generation registration, fenced checkpoints and source-watermark cutover are
+transactional. Runtime resolves the physical generation from the manifest.
+The operational alias is updated atomically without deleting indices. Retained
+rollback generations continue receiving updates for at least seven days.
+See [the operations runbook](search-spec/operations.md).
 
 ## Stream contract
 
@@ -37,6 +71,7 @@ Empty data is distinct from a failed database request. Lookup failures propagate
 | `multiagent_node_stop` | A node completed, with status and structured output when applicable. |
 | `multiagent_result` | A graph finished. The diagnose result is intermediate; completion requires the compiled routine. |
 | `error` | The pipeline failed; an allowlisted code, safe message, and correlation reference are returned. |
+| `heartbeat` | The request is still running; emitted during model silence, within the 120-second routine deadline. |
 
 The API client supports SSE comments, CRLF, multiline data, split UTF-8 chunks and AgentCore's JSON-string encoding. It rejects malformed data, unsuccessful node/graph statuses and streams that end without a final routine. A transport or pipeline error never becomes an empty success object.
 
@@ -51,11 +86,14 @@ The API client supports SSE comments, CRLF, multiline data, split UTF-8 chunks a
 | API Gateway | Cognito authorization, streaming integration, and CORS responses. |
 | Lambda proxy | Verified user identity, usage limits, server-owned sessions, and IAM-authenticated runtime invocation. |
 | AgentCore and Bedrock | Runtime hosting, graph execution and model calls. |
-| DynamoDB | Product catalog/category index and a separate per-user usage/lease table. |
+| DynamoDB | Canonical products, metadata/leases, sharded durable outbox and separate per-user usage allowances. |
+| OpenSearch | Private keyword projection with exact count ranking; no semantic or description scoring. |
+| Publication and maintenance Lambdas | Ordered replay, per-generation acknowledgements, snapshots, reconciliation and readiness. |
 | S3, CodeBuild and ECR | Source archive, ARM64 image build and immutable image publication. |
 | CloudWatch | Runtime, build and API observability. |
 
-`terraform/shared/` owns account-level API Gateway logging configuration. Each application environment has its own state key. Deployment resolves the region once and passes it to provisioning and migration.
+Deployment reuses an existing account-level API Gateway logging role without modifying it. When no role is configured, `terraform/shared/` creates and owns the shared logging resources. Each application environment has its own state key. Deployment resolves the region once and passes it to provisioning and migration.
+The account-wide OpenSearch service-linked role is retained separately; follow the [catalog operations runbook](search-spec/operations.md) when it already exists.
 
 A shared source-file manifest controls runtime packaging and change detection. It includes the catalog and Python lockfile. Image tags follow the complete content hash. Archives are recreated so deleted files cannot survive in subsequent builds. API stage deployment similarly tracks configuration content, including integration and OPTIONS response settings.
 
@@ -63,8 +101,8 @@ The runtime image installs locked dependencies using uv and runs as a non-root u
 
 ## Network and authentication details
 
-The diagram groups services by responsibility. Its AWS Cloud outline is not a
-VPC or single-region boundary. Deployment and authentication settings are
+The reference diagram groups services by responsibility. Its AWS Cloud outline is
+not a VPC or single-region boundary. Deployment and authentication settings are
 described below.
 
 CloudFront and its WAF are global edge services. The frontend S3 bucket is
@@ -72,10 +110,11 @@ regional and private; CloudFront accesses it through OAC / SigV4. API requests
 are uncached, and a CloudFront Function rewrites `/api/analyze` for the regional
 API origin. Regional WAF checks a custom origin-verification header.
 
-AgentCore is configured with `network_mode = "PUBLIC"`. This selects its
-network configuration rather than disabling authentication. VPC mode provides
-connectivity to private resources; private inbound access through PrivateLink
-is a separate configuration. The runtime uses IAM authentication. Its resource policy allows the Lambda proxy
+AgentCore uses VPC networking in two private subnets. OpenSearch accepts HTTPS
+from the workload security group and native IAM authentication. VPC endpoints
+provide required AWS API access without an internet gateway or NAT. Runtime,
+projection, maintenance and administration have separate index permissions.
+The runtime uses IAM authentication. Its resource policy allows the Lambda proxy
 role and explicitly denies invocation by other principals. Browser Cognito tokens
 are verified at API Gateway, rather than forwarded as runtime authentication.
 Normal gateway access and direct-runtime rejection still require live deployment
@@ -108,7 +147,7 @@ CloudFront certificate's TLS policy and historical credential exposure.
 
 ## Diagram maintenance
 
-The source of truth is
+The reference image's source of truth is
 `guidance-for-ai-powered-skincare-analysis-on-aws.pptx`, retained with the
 Guidance publishing artefacts. Its existing PNG export is copied unchanged to
 `assets/images/architecture.png` for the README and `docs/architecture.png` for
@@ -117,9 +156,10 @@ relabelled, cropped, or generated with an image model.
 
 The older [draw.io diagram](architecture.drawio) is retained only as historical
 source. It predates the Lambda proxy and is not the editable source of the
-approved reference architecture. Future architecture revisions should update
-the PPTX through the Guidance review process and replace both PNG copies with
-the approved export.
+approved reference architecture. A future architecture revision must incorporate
+private exact search, canonical publication and maintenance in the PPTX through
+the Guidance review process, then replace both PNG copies with the approved
+export. Until then, use the descriptions above for these implementation details.
 
 ## Reference documentation
 
@@ -129,7 +169,7 @@ the approved export.
 - [AgentCore VPC networking](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agentcore-vpc.html)
 - [AgentCore JWT authentication](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/inbound-jwt-authorizer.html)
 - [AgentCore runtime security](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-security-best-practices.html)
-- [Strands structured output](https://strandsagents.com/docs/user-guide/concepts/agents/structured-output)
+- [Strands structured output](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/)
 - [AgentCore Python SDK](https://github.com/aws/bedrock-agentcore-sdk-python)
 - [DynamoDB query pagination](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Query.Pagination.html)
 - [React effect cleanup](https://react.dev/learn/synchronizing-with-effects)

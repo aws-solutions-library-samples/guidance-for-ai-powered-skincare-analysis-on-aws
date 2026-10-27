@@ -6,6 +6,8 @@ export const analysisErrors = {
   GUARDRAIL_CONTENT: { message: 'The safety check blocked content that is not allowed. Please try different photos. If this seems incorrect, share the reference below with support.', retryable: false },
   GUARDRAIL_BLOCKED: { message: 'A safety check blocked this analysis. If this seems incorrect, share the reference below with support.', retryable: false },
   INVALID_INPUT: { message: 'We could not read these photos. Please upload valid JPEG, PNG, GIF, or WebP images and try again.', retryable: false },
+  INVALID_PREFERENCES: { message: 'These preferences could not be applied. Check your selected ingredients, categories, market, and price limit.', retryable: false },
+  NO_MATCHING_PRODUCTS: { message: 'No products matched the selected ingredients and constraints. Adjust your preferences or try again.', retryable: false },
   AUTH_REQUIRED: { message: 'Your session has expired or you are not signed in. Please sign in again.', retryable: false },
   ACCESS_DENIED: { message: 'Your account cannot access this analysis. Please contact support with the reference below.', retryable: false },
   REQUEST_TOO_LARGE: { message: 'These photos are too large. Please upload smaller images and try again.', retryable: false },

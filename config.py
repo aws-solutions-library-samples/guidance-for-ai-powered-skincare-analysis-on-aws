@@ -9,16 +9,14 @@ from agents.guarded_model import GuardedBedrockModel
 
 logger = logging.getLogger(__name__)
 
-# Available models (global cross-region inference IDs)
+# Supported models must also be allowed by terraform/iam.tf.
 AVAILABLE_MODELS: dict[str, str] = {
-    "claude-sonnet-4.6": "global.anthropic.claude-sonnet-4-6",
-    "claude-haiku-4.5": "global.anthropic.claude-haiku-4-5-20251001-v1:0",
-    "nova-lite-2": "global.amazon.nova-2-lite-v1:0",
-    "nova-pro-2": "global.amazon.nova-2-pro-v1:0",
+    "claude-sonnet-5.5": "global.anthropic.claude-sonnet-5-5",
+    "claude-haiku-5.5": "global.anthropic.claude-haiku-5-5",
 }
 
-DEFAULT_MODEL = "claude-sonnet-4.6"
-FAST_MODEL = "claude-haiku-4.5"
+DEFAULT_MODEL = "claude-sonnet-5.5"
+FAST_MODEL = "claude-haiku-5.5"
 
 # Model configuration
 _selected_model = os.environ.get("MODEL_NAME", DEFAULT_MODEL)
@@ -35,14 +33,26 @@ _aws_region = os.environ.get("AWS_REGION", "us-east-1")
 
 MODEL_CONFIG = {
     "model_id": AVAILABLE_MODELS[_selected_model],
-    "temperature": 0.15,
     "region_name": _aws_region,
+    "streaming": True,
+    "strict_tools": True,
+    "max_tokens": 8192,
+    "additional_request_fields": {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "medium"},
+    },
 }
 
 FAST_MODEL_CONFIG = {
     "model_id": AVAILABLE_MODELS[FAST_MODEL],
-    "temperature": 0.15,
     "region_name": _aws_region,
+    "streaming": True,
+    "strict_tools": True,
+    "max_tokens": 8192,
+    "additional_request_fields": {
+        "thinking": {"type": "adaptive"},
+        "output_config": {"effort": "low"},
+    },
 }
 
 

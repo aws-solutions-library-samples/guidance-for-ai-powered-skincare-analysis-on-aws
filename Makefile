@@ -5,7 +5,7 @@
 #   make deploy      — Full deployment (infra + agent + frontend)
 #   make destroy     — Tear down one deployment environment
 #   make validate    — Check source code and Terraform configuration
-#   make test        — Run local Python and frontend tests
+#   make test        — Run local Python, frontend and proxy tests
 #
 # Environment:
 #   ENV              — Target environment: dev (default), test, staging, prod
@@ -19,7 +19,7 @@ SHELL := /bin/bash
 .PHONY: help
 help:
 	@echo "make setup       Install local dependencies"
-	@echo "make test        Run Python and frontend tests"
+	@echo "make test        Run Python, frontend and proxy tests"
 	@echo "make validate    Check source and Terraform configuration"
 	@echo "make bootstrap   Create AWS resources for Terraform state"
 	@echo "make deploy      Deploy the selected environment (ENV=dev by default)"
@@ -52,6 +52,8 @@ setup:
 	@echo "✅ Frontend dependencies installed"
 	@cd api_proxy && npm ci && npm run build
 	@echo "✅ API proxy dependencies installed and packaged"
+	@uv run --locked python scripts/build-catalog-worker.py
+	@echo "✅ Catalog worker packaged"
 
 # ---------------------------------------------------------------------------
 # AWS state resources (one-time)
@@ -100,6 +102,7 @@ destroy:
 # ---------------------------------------------------------------------------
 .PHONY: validate
 validate:
+	@uv run --locked python scripts/check_docs.py
 	@echo "Validating Python..."
 	@uv run --locked python -m compileall -q *.py agents scripts
 	@echo "✅ Python compilation OK"
@@ -126,9 +129,15 @@ test:
 # ---------------------------------------------------------------------------
 .PHONY: migrate-products
 migrate-products:
+	@if [ -z "$(SOURCE_JSONL)" ]; then echo "Usage: make migrate-products SOURCE_JSONL=/path/to/supplier.jsonl"; exit 1; fi
 	@set -e; PRODUCTS_TABLE=$$(cd terraform && terraform output -raw products_table_name); \
+	METADATA_TABLE=$$(cd terraform && terraform output -raw catalog_metadata_table_name); \
+	OUTBOX_TABLE=$$(cd terraform && terraform output -raw catalog_outbox_table_name); \
 	DEPLOYMENT_REGION=$$(cd terraform && terraform output -raw aws_region); \
-	AWS_DEFAULT_REGION="$$DEPLOYMENT_REGION" uv run --locked python scripts/migrate_products.py "$$PRODUCTS_TABLE"
+	AWS_REGION="$$DEPLOYMENT_REGION" AWS_DEFAULT_REGION="$$DEPLOYMENT_REGION" \
+	uv run --locked python scripts/migrate_products.py "$$PRODUCTS_TABLE" \
+	--metadata-table "$$METADATA_TABLE" --outbox-table "$$OUTBOX_TABLE" \
+	--source "$(SOURCE_JSONL)" --wait-ready
 
 # ---------------------------------------------------------------------------
 # Create Cognito user (manual)

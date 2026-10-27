@@ -41,8 +41,8 @@ variable "analysis_proxy_concurrency" {
   type        = number
   default     = 10
   validation {
-    condition     = var.analysis_proxy_concurrency >= 1 && var.analysis_proxy_concurrency <= 100 && floor(var.analysis_proxy_concurrency) == var.analysis_proxy_concurrency
-    error_message = "analysis_proxy_concurrency must be an integer from 1 to 100."
+    condition     = var.analysis_proxy_concurrency >= 1 && var.analysis_proxy_concurrency <= 3000 && floor(var.analysis_proxy_concurrency) == var.analysis_proxy_concurrency
+    error_message = "analysis_proxy_concurrency must be an integer from 1 to 3000 and fit the account's applied Lambda quota."
   }
 }
 
@@ -54,6 +54,12 @@ variable "custom_domain" {
   description = "Custom domain for CloudFront (e.g. beauty.example.com). Leave empty to use default CloudFront domain."
   type        = string
   default     = ""
+}
+
+variable "search_alarm_actions" {
+  description = "SNS topic or other supported CloudWatch alarm action ARNs, owned by the operating team."
+  type        = list(string)
+  default     = []
 }
 
 variable "acm_certificate_arn" {
@@ -70,6 +76,22 @@ variable "product_category_field" {
   description = "DynamoDB attribute name for product category (must match catalog.yaml schema.category_field)"
   type        = string
   default     = "product_type"
+}
+
+variable "search_instance_type" {
+  description = "OpenSearch data node type; two AZs. Qualify capacity before production use."
+  type        = string
+  default     = "r6g.large.search"
+}
+
+variable "search_volume_gib" {
+  description = "Storage per OpenSearch data node in GiB."
+  type        = number
+  default     = 30
+  validation {
+    condition     = var.search_volume_gib >= 20 && floor(var.search_volume_gib) == var.search_volume_gib
+    error_message = "search_volume_gib must be an integer of at least 20."
+  }
 }
 
 variable "route53_zone_id" {
