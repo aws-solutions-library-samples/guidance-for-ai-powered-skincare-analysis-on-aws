@@ -3,6 +3,7 @@
 ## Table of Contents
 
 1. [Overview](#overview)
+    - [How it works](#how-it-works)
     - [Architecture](#architecture)
     - [Cost](#cost)
 2. [Prerequisites](#prerequisites)
@@ -22,27 +23,47 @@
 
 ## Overview
 
-This Guidance demonstrates how to build a personalized skincare analysis application using a multi-agent AI architecture on AWS. A user captures a selfie through a secure web interface, and the system analyzes their skin in real time using specialized AI agents — each responsible for a distinct step in the skincare recommendation pipeline — to produce a tailored multi-step skincare routine with product recommendations.
+This Guidance demonstrates how to build a personalized skincare analysis application using a multi-agent AI architecture on AWS. A user submits up to three skin photos through a secure web interface. Specialized AI agents analyze the photos, plan a routine, and select products from the catalog while the application streams progress to the user.
 
-The multi-agent system is orchestrated as a directed graph using the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and runs on Amazon Bedrock AgentCore Runtime. Specialized agents handle skin type detection (via Claude's vision capabilities), routine step planning, ingredient compatibility evaluation, and product matching against a DynamoDB-backed catalog. The entire analysis streams progress to the frontend in real time via Server-Sent Events (SSE), providing a responsive user experience.
+The multi-agent system is orchestrated as a directed graph using the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and runs on Amazon Bedrock AgentCore Runtime. Specialized agents handle skin analysis, routine planning, ingredient selection, and product matching against a DynamoDB-backed catalog. Progress and intermediate results stream to the frontend via Server-Sent Events (SSE).
+
+### How it works
+
+#### 1. Analyze and plan
+
+The skin-analysis agent turns the photos into a structured skin profile. The planning agent uses that profile and the available catalog categories to choose 2–8 distinct routine steps, including their order, timing, and rationale.
+
+![Analyze and plan: illustrated facial observations lead to a structured skin profile and an ordered routine plan.](assets/images/analyze-and-plan.png)
+
+**The skin profile and ordered plan carry forward into product selection.**
+
+#### 2. Select and assemble
+
+Each planned step runs an ingredient agent followed by a product agent; these step-specific chains run in parallel. Available catalog ingredients inform ingredient selection. The product agent's catalog tool retrieves candidates within the step's category and ranks them by ingredient matches before the agent chooses products and explains its recommendations.
+
+![Select and assemble: parallel step chains use catalog ingredients and ranked products; code checks product IDs, uses catalog facts, and assembles the routine in the planned order.](assets/images/select-and-assemble.png)
+
+Code checks selected product IDs against that step's retrieved candidates and restores trusted catalog fields. After all steps finish, deterministic code assembles the routine in its planned order without another model call. Agent-written explanations remain generated text.
+
+The illustrations use a fictional profile and three example steps. See the [architecture guide](docs/architecture.md) for the implemented request path, streaming contract, and current search limitations.
 
 ### Architecture
 
-![Architecture Diagram](assets/images/architecture.png)
+![Approved reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents, product catalog, and build pipeline.](assets/images/architecture.png)
 
-1. The user accesses a React single-page application served via **Amazon CloudFront**, protected by **AWS WAF** with rate limiting and AWS Managed Rules.
-2. The user authenticates through **Amazon Cognito** using direct username/password sign-in (admin-created users).
-3. The user captures a selfie using the in-browser camera with a face-guide overlay and countdown.
-4. The frontend sends the image to **Amazon API Gateway** (REST API with a Cognito JWT authorizer).
-5. API Gateway routes the request to **Amazon Bedrock AgentCore Runtime**, which hosts the multi-agent orchestrator as a containerized application.
-6. The orchestrator coordinates four specialized agents in a graph-based workflow:
-    - **Skin Analysis Agent** — Uses Claude Sonnet 4.6's vision capabilities to identify skin type, concerns, and characteristics from the photo.
-    - **Step Analysis Agent** — Determines the optimal routine steps (3–8) based on the skin analysis output.
-    - **Ingredients Agent** — Evaluates ingredient compatibility and provides recommendations for each step.
-    - **Product Agent** — Queries the **Amazon DynamoDB** product catalog to find the top 3 matching products per step.
-7. A deterministic compile node assembles the final routine into a structured JSON response.
-8. **Amazon Bedrock Guardrails** apply content filtering, PII redaction, and topic blocking to all model invocations.
-9. The response streams back to the frontend via SSE through API Gateway, providing real-time progress updates for each agent stage.
+[View the reference architecture at full resolution](assets/images/architecture.png).
+
+The numbered steps below follow the approved reference architecture:
+
+1. **Web application.** The user signs in and submits up to three skin photos. **Amazon CloudFront** serves the React application from a private **Amazon S3** bucket, with **AWS WAF** protecting the web and API paths.
+2. **Authentication.** **Amazon Cognito** authenticates administrator-created users. **Amazon API Gateway** validates the Cognito ID token on each analysis request.
+3. **Controlled runtime access.** API Gateway invokes a streaming **AWS Lambda** proxy. The proxy checks the authenticated identity, enforces per-user usage limits and active-analysis leases in **Amazon DynamoDB**, and invokes **Amazon Bedrock AgentCore Runtime** with IAM credentials.
+4. **Analysis and planning.** AgentCore runs the agents in isolated sessions. A skin-analysis agent uses an **Amazon Bedrock** multimodal model to produce a structured profile. A planning agent chooses 2–8 routine steps from the available catalog categories.
+5. **Product selection.** Each routine step runs an ingredient agent followed by a product agent. These chains run in parallel across steps and query the DynamoDB catalog. **Amazon Bedrock Guardrails** screen model calls.
+6. **Build and monitoring.** **AWS CodeBuild** builds the agent image from source in S3 and pushes it to **Amazon ECR** for the runtime. **Amazon CloudWatch** supports API, WAF, build, and runtime observability.
+7. **Assembly and streaming.** Code validates the selected products against retrieved catalog records and assembles the routine in its planned order. Progress and results stream back as SSE through Lambda, API Gateway, and CloudFront to the browser.
+
+The [architecture guide](docs/architecture.md) explains the Lambda proxy, usage limits, streaming contract, and deployment boundaries in more detail.
 
 ### Cost
 
@@ -55,7 +76,7 @@ We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/lat
 The cost estimate is based on deployment in **US East (N. Virginia) — `us-east-1`**. Pricing may vary by region. It assumes the following usage pattern:
 
 - **1 selfie image** at typical smartphone resolution (~1920×1080), which is downscaled to 1,568 tokens by the API
-- **5 routine steps** on average (the system generates 3–8 steps depending on skin conditions)
+- **5 routine steps** on average (the system generates 2–8 steps depending on the skin profile)
 - **12 model invocations** per analysis: 1 Sonnet call (vision) + 1 Haiku call (step planning) + 5 Haiku calls (ingredients) + 5 Haiku calls (products)
 - **~60 seconds** average end-to-end processing time per analysis, with ~70% spent in I/O wait (waiting for model responses)
 
@@ -236,16 +257,16 @@ After deployment completes, validate with the following steps:
 5. The camera captures your photo automatically (with countdown timer and flash effect).
 6. Observe real-time streaming progress as the AI agents process your skin:
     - **Skin Analysis** — Identifies skin type (oily, dry, combination, sensitive, normal) and specific concerns
-    - **Step Planning** — Determines 3–8 optimal routine steps based on the analysis
-    - **Ingredient Evaluation** — Selects compatible ingredient categories for each step
-    - **Product Matching** — Retrieves the top 3 products per step from the catalog
+    - **Step Planning** — Chooses 2–8 routine steps based on the analysis and available categories
+    - **Ingredient Selection** — Selects ingredients available in the catalog for each step
+    - **Product Matching** — Recommends up to 3 products per step from the retrieved catalog candidates
 7. Review your personalized skincare routine with product recommendations, ingredient details, and rationale.
 
 ### Expected Output
 
 A complete analysis produces:
 - A structured multi-step skincare routine (morning and/or evening)
-- Top 3 product recommendations per step with ingredient match scores
+- Up to 3 product recommendations per step with ingredient match scores
 
 ## Next Steps
 

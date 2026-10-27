@@ -1,10 +1,10 @@
 # Architecture
 
-![Smart Beauty AWS architecture](architecture.png)
+![Approved Smart Beauty reference architecture](architecture.png)
 
-[Editable diagram](architecture.drawio)
+[View the reference architecture at full resolution](architecture.png)
 
-The application has one authenticated analysis endpoint and one streaming result path through a Lambda proxy. The diagram assets predate that proxy and its usage-limit table; the flow below describes the current implementation. Background job polling, PDF services, translation agents, and federated sign-in are not included.
+This image is the unchanged export of the approved reference-architecture PPTX. The application has one authenticated analysis endpoint and one streaming result path through a Lambda proxy. The flow below expands on the diagram's seven numbered steps. Background job polling, PDF services, translation agents, and federated sign-in are not included.
 
 ## Request flow
 
@@ -63,8 +63,9 @@ The runtime image installs locked dependencies using uv and runs as a non-root u
 
 ## Network and authentication details
 
-The diagram shows service purpose, request flow and meaningful boundaries.
-Deployment settings are described here so the overview stays readable.
+The diagram groups services by responsibility. Its AWS Cloud outline is not a
+VPC or single-region boundary. Deployment and authentication settings are
+described below.
 
 CloudFront and its WAF are global edge services. The frontend S3 bucket is
 regional and private; CloudFront accesses it through OAC / SigV4. API requests
@@ -89,8 +90,7 @@ has stopped. These controls bound accepted usage; they do not establish producti
 throughput.
 
 The default Bedrock model IDs use global inference profiles. Model processing
-can occur outside the deployment region, so Bedrock is drawn outside that
-boundary. CloudFront access logs go to S3; API, WAF and build logs go to
+can occur outside the deployment region. CloudFront access logs go to S3; API, WAF and build logs go to
 CloudWatch. Runtime telemetry is instrumented but its delivery has not been
 verified live.
 
@@ -108,18 +108,18 @@ CloudFront certificate's TLS policy and historical credential exposure.
 
 ## Diagram maintenance
 
-The existing PNG and draw.io assets are retained unchanged in the initial GitHub source contribution. Their request path must be revised to show Lambda, IAM runtime invocation, guardrails, and the usage-limit table before treating them as current implementation diagrams.
+The source of truth is
+`guidance-for-ai-powered-skincare-analysis-on-aws.pptx`, retained with the
+Guidance publishing artefacts. Its existing PNG export is copied unchanged to
+`assets/images/architecture.png` for the README and `docs/architecture.png` for
+this guide. Both copies must stay identical. The slide has not been redrawn,
+relabelled, cropped, or generated with an image model.
 
-The PNG was generated with `gpt-image-2.5-sunburst` using an editable draw.io
-render as its reference, then reviewed against the repository. Unwanted
-captions were removed locally, and the image was upscaled from 1536 × 1024
-to 3840 × 2560 using Lanczos resampling. All 14 icon placements were then
-replaced locally with official AWS SVG assets from the July 31, 2026 icon
-package. The PNG contains these assets rendered at their final display size;
-the editable source embeds the original SVGs, including the AWS account and
-client symbols. No image generation was used for these corrections.
-AWS architecture guidance was retrieved through the AWS Specialist and
-AWS Documentation MCPs and reconciled with the implemented configuration.
+The older [draw.io diagram](architecture.drawio) is retained only as historical
+source. It predates the Lambda proxy and is not the editable source of the
+approved reference architecture. Future architecture revisions should update
+the PPTX through the Guidance review process and replace both PNG copies with
+the approved export.
 
 ## Reference documentation
 
