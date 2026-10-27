@@ -5,7 +5,7 @@
 #   make deploy      — Full deployment (infra + agent + frontend)
 #   make destroy     — Tear down one deployment environment
 #   make validate    — Check source code and Terraform configuration
-#   make test        — Run local Python and frontend tests
+#   make test        — Run local Python, frontend and proxy tests
 #
 # Environment:
 #   ENV              — Target environment: dev (default), test, staging, prod
@@ -19,7 +19,7 @@ SHELL := /bin/bash
 .PHONY: help
 help:
 	@echo "make setup       Install local dependencies"
-	@echo "make test        Run Python and frontend tests"
+	@echo "make test        Run Python, frontend and proxy tests"
 	@echo "make validate    Check source and Terraform configuration"
 	@echo "make bootstrap   Create AWS resources for Terraform state"
 	@echo "make deploy      Deploy the selected environment (ENV=dev by default)"
@@ -102,6 +102,7 @@ destroy:
 # ---------------------------------------------------------------------------
 .PHONY: validate
 validate:
+	@uv run --locked python scripts/check_docs.py
 	@echo "Validating Python..."
 	@uv run --locked python -m compileall -q *.py agents scripts
 	@echo "✅ Python compilation OK"

@@ -105,3 +105,28 @@ output "frontend_env_config" {
     VITE_API_URL=${var.custom_domain != "" ? "https://${var.custom_domain}/api" : "https://${aws_cloudfront_distribution.main.domain_name}/api"}
   EOT
 }
+
+output "deployment_account_id" {
+  description = "Account containing this deployment (used to guard live validation)"
+  value       = local.account_id
+}
+
+output "deployment_environment" {
+  description = "Environment selected for this state"
+  value       = var.environment
+}
+
+output "analysis_limits_table_name" {
+  description = "Per-user admission controls table"
+  value       = aws_dynamodb_table.analysis_limits.name
+}
+
+output "api_proxy_function_name" {
+  description = "Streaming proxy function used by release validation"
+  value       = aws_lambda_function.api_proxy.function_name
+}
+
+output "agent_source_hash" {
+  description = "Hash used to identify the packaged agent source and image build"
+  value       = local.agent_source_hash
+}

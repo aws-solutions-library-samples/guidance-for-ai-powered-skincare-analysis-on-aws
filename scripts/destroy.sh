@@ -63,10 +63,14 @@ terraform init -input=false -reconfigure \
   -backend-config="encrypt=true"
 
 TFVARS_FILE="env-${ENV}.tfvars"
-TFVARS_ARGS=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
+TFVARS_ARGS=()
 if [ -f "$TFVARS_FILE" ]; then
-  TFVARS_ARGS=("-var-file=$TFVARS_FILE" "${TFVARS_ARGS[@]}")
+  TFVARS_ARGS+=("-var-file=$TFVARS_FILE")
 fi
+if [ -f terraform.tfvars ]; then
+  TFVARS_ARGS+=("-var-file=terraform.tfvars")
+fi
+TFVARS_ARGS+=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
 
 terraform destroy -auto-approve -input=false "${TFVARS_ARGS[@]}"
 

@@ -21,6 +21,10 @@ COPY config.py .
 COPY catalog.py .
 COPY agentcore_entrypoint.py .
 
+# Fail the image build if the runtime user cannot import the application or
+# read its catalog and prompts. This does not invoke AWS services or models.
+RUN python -c "import agentcore_entrypoint; from catalog import load_catalog; from pathlib import Path; load_catalog(); [p.read_text() for p in Path('prompts').glob('*.txt')]"
+
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping', timeout=2)"
 

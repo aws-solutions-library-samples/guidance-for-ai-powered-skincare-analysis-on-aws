@@ -74,19 +74,25 @@ uv run --locked python scripts/build-catalog-worker.py
 # ──────────────────────────────────────────────
 # 3. Terraform apply (infra + AgentCore + CodeBuild)
 # ──────────────────────────────────────────────
-print_step "3/6  Terraform — shared account-level resources"
+print_step "3/6  Checking shared API Gateway logging"
 
-cd "$PROJECT_ROOT/terraform/shared"
-
-terraform init -input=false -reconfigure \
-  -backend-config="bucket=smart-beauty-tfstate-${AWS_ACCOUNT}" \
-  -backend-config="key=shared/terraform.tfstate" \
-  -backend-config="region=us-east-1" \
-  -backend-config="dynamodb_table=smart-beauty-tfstate-lock" \
-  -backend-config="encrypt=true"
-
-terraform apply -auto-approve -input=false -var="aws_region=$AWS_REGION"
-print_success "Shared resources ready"
+# This setting is shared by every REST API in the account/region. Preserve
+# another application's role instead of replacing it as a side effect.
+LOGGING_ROLE=$(aws apigateway get-account --region "$AWS_REGION" \
+  --query cloudwatchRoleArn --output text)
+if [[ -n "$LOGGING_ROLE" && "$LOGGING_ROLE" != "None" && "$LOGGING_ROLE" != "null" ]]; then
+  print_info "Reusing the existing account-level API Gateway logging role"
+else
+  cd "$PROJECT_ROOT/terraform/shared"
+  terraform init -input=false -reconfigure \
+    -backend-config="bucket=smart-beauty-tfstate-${AWS_ACCOUNT}" \
+    -backend-config="key=shared/terraform.tfstate" \
+    -backend-config="region=us-east-1" \
+    -backend-config="dynamodb_table=smart-beauty-tfstate-lock" \
+    -backend-config="encrypt=true"
+  terraform apply -auto-approve -input=false -var="aws_region=$AWS_REGION"
+  print_success "Shared logging resources ready"
+fi
 
 print_step "4/6  Terraform — provisioning environment infrastructure"
 
@@ -102,10 +108,14 @@ terraform init -input=false -reconfigure \
 # Single apply: infrastructure and the AgentCore image/runtime.
 # Load committed environment settings and optional local terraform.tfvars.
 TFVARS_FILE="env-${ENV}.tfvars"
-TFVARS_ARGS=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
+TFVARS_ARGS=()
 if [ -f "$TFVARS_FILE" ]; then
-  TFVARS_ARGS=("-var-file=$TFVARS_FILE" "${TFVARS_ARGS[@]}")
+  TFVARS_ARGS+=("-var-file=$TFVARS_FILE")
 fi
+if [ -f terraform.tfvars ]; then
+  TFVARS_ARGS+=("-var-file=terraform.tfvars")
+fi
+TFVARS_ARGS+=("-var=environment=$ENV" "-var=aws_region=$AWS_REGION")
 
 if ! terraform apply -auto-approve -input=false "${TFVARS_ARGS[@]}"; then
   print_error "Terraform apply failed"

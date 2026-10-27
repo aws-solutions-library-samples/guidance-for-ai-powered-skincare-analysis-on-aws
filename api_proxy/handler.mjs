@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { PublicError, errorEvent, publicError } from './errors.mjs';
 import { validatePreferences, validateLookup } from './preferences.mjs';
@@ -86,7 +87,7 @@ export function createHandler({ invoke, limits, lookup, lookupLimits, wrapRespon
         stream = wrapResponse(rawStream, {
           statusCode: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
         });
-        stream.end(JSON.stringify(result));
+        await pipeline(Readable.from([JSON.stringify(result)]), stream);
         return;
       }
       const payload = parsePayload(event);
@@ -135,9 +136,11 @@ export function createHandler({ invoke, limits, lookup, lookupLimits, wrapRespon
             ...(failure.retryAfter ? { 'Retry-After': String(failure.retryAfter) } : {}),
           },
         });
-        stream.end(JSON.stringify(errorEvent(failure, requestId)));
+        // Use the write path so Lambda emits the HTTP metadata and delimiter,
+        // then await completion before the Node.js 24 handler returns.
+        await pipeline(Readable.from([JSON.stringify(errorEvent(failure, requestId))]), stream);
       } else if (!stream.destroyed && !stream.writableEnded) {
-        stream.end(`data: ${JSON.stringify(errorEvent(failure, requestId))}\n\n`);
+        await pipeline(Readable.from([`data: ${JSON.stringify(errorEvent(failure, requestId))}\n\n`]), stream);
       }
     } finally {
       clearTimeout(timer);
