@@ -1,0 +1,27 @@
+{
+  "catalog_id": "demo",
+  "configuration_id": "exact-demo-v1",
+  "index_generation": "products-demo-v1",
+  "taxonomy_version": "demo-v1",
+  "schema_version": "2.0",
+  "eligibility_mode": "catalog",
+  "default_market": "GB",
+  "default_currency": "GBP",
+  "supported_markets": [
+    "GB"
+  ],
+  "supported_currencies": [
+    "GBP"
+  ],
+  "currency_minor_units": {
+    "GBP": 2
+  },
+  "categories": [
+    "Cleanser",
+    "Toner",
+    "Serum",
+    "Moisturiser",
+    "Exfoliator",
+    "Sunscreen"
+  ]
+}
