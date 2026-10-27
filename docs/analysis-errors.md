@@ -31,6 +31,8 @@ allowlisted copy rather than raw server messages. The reference correlates with
 | `ACCESS_DENIED` | HTTP 403. Contact support; this is not assumed to be a guardrail block. |
 | `REQUEST_TOO_LARGE` | HTTP 413 or backend image/count/dimension limits. Use up to three images, each at most 1 MiB and 2048 pixels per side. |
 | `RATE_LIMITED` | HTTP 429 or provider throttling. Wait before retrying. |
+| `USER_RATE_LIMITED` | The proxy's per-user hourly allowance is exhausted. Wait until the next UTC hour. |
+| `ANALYSIS_IN_PROGRESS` | This user already has an active analysis lease. Wait for completion; an interrupted request may retain its lease until expiry. |
 | `TIMEOUT` | Provider/request timeout or HTTP 408/504. Retry. |
 | `SERVICE_UNAVAILABLE` | Provider, backend access/configuration, or HTTP 5xx failure. Retry later. |
 | `NETWORK_ERROR` | Fetch or stream connection failed. Check connectivity. |
@@ -57,8 +59,8 @@ remain separate controls.
 
 ## Verification
 
-Run `.venv/bin/pytest -q`, then `npm test`, `npm run typecheck`, and
-`npm run build` in `frontend/`. The integration tests use the pinned Bedrock,
+Run `make test`, then `npm run typecheck` and `npm run build` in `frontend/`.
+The integration tests use the pinned Bedrock,
 Strands graph and AgentCore HTTP adapters with mocked AWS responses. They cover
 each blocking category on input/output, allowed content, safe error serialization
 and provider error classification. Frontend tests cover HTTP/SSE/network

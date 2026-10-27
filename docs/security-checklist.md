@@ -1,6 +1,6 @@
 # Security remediation checklist
 
-Updated: 2026-10-23 (M-03/M-05 implementation status; no additional live closure). Source baseline: the PACE security review of the
+Updated: 2026-10-27 (dependency candidates and release checks; no additional live closure). Source baseline: the PACE security review of the
 `open-source` branch. This is a work tracker, not a claim that the application
 is ready for public deployment.
 
@@ -149,27 +149,32 @@ changes.
   versions. Correcting the source description alone does not upgrade the default
   deployment's TLS minimum.
 
-## Dependency advisories — 0 of 6 closed
+## Dependency advisories — current disposition
 
-These are the version matches in the original review, not demonstrated remote
-exploits. Recheck official advisories and compatibility before selecting fixes.
-For runtime changes, run integration tests and a deployed smoke test. For build
-or test dependencies, verify the relevant attack condition, rebuild and audit
-the dependency tree, then smoke-test the resulting deployed artifact.
+See the [dependency review](dependency-review.md) for selected versions, official
+advisories, exposure analysis and the AWS telemetry version constraint. These are
+local remediation candidates; no new deployment has been verified.
 
-- [ ] **D-01 — bedrock-agentcore / GHSA-6rfw-mq36-jm8h.**
-  Code Interpreter dependency surface; no application call was found.
-- [ ] **D-02 — bedrock-agentcore / GHSA-j6g5-3hh3-pgw8.**
-  Same unused surface; the selected upgrade must address both AgentCore advisories.
-- [ ] **D-03 — pytest / GHSA-6w46-j5rx-g56g.**
-  Development/test temporary-directory issue; excluded from the runtime image.
-- [ ] **D-04 — requests / GHSA-gc5v-m9x4-r6x2.**
-  Affected archive-path helper; no application call was found.
-- [ ] **D-05 — braces / GHSA-vfj7-8cjw-p6xm.**
-  Build/development parsing denial of service; original audit reported no patched
-  braces version. Confirm exposure and a compatible dependency-path resolution.
-- [ ] **D-06 — postcss-selector-parser / GHSA-rj75-hqrm-r3gf.**
-  Build/development parsing issue requiring untrusted selector input.
+- [ ] **D-01/D-02 — AgentCore package-installation advisories.** Updated to 1.18.1,
+  with its required boto3 update; the affected Code Interpreter API is unused.
+  Graph, guardrail and streaming adapters require a rebuilt-image live test.
+- [ ] **D-03 — pytest temporary-directory issue.** Updated to 9.0.3; development
+  only. Local tests pass; retain it outside the runtime image.
+- [ ] **D-04 — Requests archive-path helper.** Updated to 2.33.0; no application
+  call to the affected helper. Include the selected tree in the release evidence.
+- **D-05 — Historical braces finding.** Not reproduced by the current npm audit.
+  This is a scanner-disposition update, not a newly demonstrated runtime fix.
+- [ ] **D-06 — postcss-selector-parser complexity.** Updated to 6.1.5 in the
+  frontend lockfile; rebuild and verify the deployed frontend.
+- [ ] **D-07 — Strands A2A session isolation.** Updated to 1.43.0. This app does not
+  use the A2A server; verify its graph/SSE behavior in the deployed image.
+- [ ] **D-08 — OpenTelemetry tracestate parser.** Remains open. The AWS telemetry
+  distribution pins an affected version, including in the newer distribution
+  checked on the review date. Header filtering and proxy-only access reduce
+  exposure but do not constitute a fully verified fix or an accepted exception.
+- **Certifi advisory disposition.** 2026.10.18 already removed the compromised
+  root; selected 2026.10.19 follows the updated maintainer recommendation and
+  avoids stale scanner disagreement. Rebuild images with the updated lockfile.
 
 ## Scanner findings requiring a decision or more evidence
 

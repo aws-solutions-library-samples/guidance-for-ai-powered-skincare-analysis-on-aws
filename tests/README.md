@@ -11,6 +11,8 @@ The default suites require no AWS credentials and make no live model requests.
 | Streaming proxy | `npm test --prefix api_proxy` | Verified-claim identity, payload limits, runtime invocation, error handling, transactional usage limits, and lease release/failure behavior with mocked AWS boundaries. |
 | Static checks | `make validate` | Python compilation, TypeScript, Terraform formatting/validation. Terraform providers must already be initialized. |
 | Live smoke | `uv run --locked python -m tests.live_sse --image /path/to/photo.jpg` | A deployed authenticated request, all planned node outputs and a successful compiled routine. Set `API_URL` and `AUTH_TOKEN` explicitly. |
+| Live release | `uv run --locked python -m tests.live_release --help` | Opt-in test-account controls, temporary identities, real quota/lease enforcement, direct IAM denial, and optional timed photo analysis. See the [release runbook](../docs/release-validation.md). |
+| Live model contracts | `uv run --locked python -m tests.live_models --help` | Synthetic schema, vision, structured-output retry, and live catalog-tool checks with both configured models and deployed Guardrails. See [model configuration](../docs/model-configuration.md). |
 | Local OpenSearch | `uv run --locked python tests/local_search_engine.py --credentials /absolute/path/credentials.json --report /absolute/path/report.json` | Actual exact-query ordering, external version replay, PIT summary counts, reconciliation, and reader/writer/maintenance permission denials. Dedicated HTTPS loopback engine only; temporary resources are removed. |
 
 The local-engine suite uses 420 varied fixture records and 120 exhaustive
@@ -41,6 +43,28 @@ corresponding approved spending reserve. Its scheduled rules are disabled and
 the search probe uses Lambda with the runtime's search/read policy fragment;
 this does not qualify the actual AgentCore runtime, public API, models or capacity.
 
+When a terminal failed component run retains exactly its five test roles, preparation
+can take `--reuse-roles-from /absolute/failed/run-directory`. The original creation
+plan and state must identify those roles, and live IAM checks must confirm their
+immutable IDs, trust policies, and empty test-role permissions. The new plan reads
+the roles through Terraform data sources and rejects any managed IAM role; it
+does not import them or modify the predecessor's state. Changes to predecessor
+evidence or role permissions stop execution. Teardown must remove the new
+resources and policies and verify the roles have returned to their prior state.
+The predecessor's five outstanding role deletions remain explicitly unverified.
+
+The managed reader probe captures the same bounded candidates used by application
+selection, without an additional query. The independent oracle compares every
+ordered top-100 ID/count and the final top three before and after rebuild/rollback.
+The raw query cases and expected results are retained with a checksum.
+
+Role reuse follows the official [IAM GetRole](https://docs.aws.amazon.com/IAM/latest/APIReference/API_GetRole.html),
+[inline policy listing](https://docs.aws.amazon.com/IAM/latest/APIReference/API_ListRolePolicies.html),
+[attached policy listing](https://docs.aws.amazon.com/IAM/latest/APIReference/API_ListAttachedRolePolicies.html),
+[OpenSearch service-linked role](https://docs.aws.amazon.com/opensearch-service/latest/developerguide/slr-aos.html)
+and [Terraform role data source](https://registry.terraform.io/providers/hashicorp/aws/latest/docs/data-sources/iam_role)
+documentation. It uses the existing approved account/profile and spending reserve.
+
 The integration suite uses real application modules and substitutes external
 boundaries. Python tests reject socket connections. Deployment scripts run from
 a temporary project with fake AWS, Terraform, npm and uv commands; they cannot
@@ -59,6 +83,9 @@ graph, missing recommendations or invalid final result. It does not assess the
 medical quality of model advice, IAM policies, deployment behavior, load,
 cross-browser rendering or real camera permissions. Validate those separately
 before a release; passing offline tests is not evidence that AWS is deployed.
+The broader live release checker records event arrival times and checks deployed
+controls. It still requires separate browser, guardrail, operational and capacity
+evidence; its report cannot approve a release automatically.
 
 Test APIs follow the official [pytest monkeypatch guide](https://docs.pytest.org/en/stable/how-to/monkeypatch.html),
 [Vitest configuration](https://vitest.dev/config/) and

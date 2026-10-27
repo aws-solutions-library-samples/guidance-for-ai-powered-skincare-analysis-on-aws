@@ -7,8 +7,9 @@ A request contains one
 to three base64 images. Each decoded image must be at most 1 MiB, with each side
 at most 2048 pixels. The encoded length is checked before base64 allocation.
 JPEG, PNG, static GIF and static WebP are supported; animations, corrupt images
-and unexpected request fields are rejected before constructing an agent or an
-AWS client.
+and unexpected request fields are rejected by the runtime before constructing
+an agent or its AWS clients. The Lambda proxy performs separate payload and
+identity checks before invoking the runtime.
 
 Pillow verifies the file, then reopens and fully decodes it. Accepted images are
 normalized to JPEG, without EXIF metadata or appended file content. The normalized
@@ -43,9 +44,11 @@ the application and its regional Cognito endpoint. Inline styles remain necessar
 for the current animation and UI components. Inline scripts, evaluated scripts,
 arbitrary HTTPS image hosts, objects and base-URL changes are not permitted.
 
-These controls do not themselves establish per-user usage budgets, prevent direct
-runtime access, or make model explanations factual. Those concerns remain open
-in the [security checklist](security-checklist.md) until separately verified.
+The Lambda proxy separately enforces per-user allowances and active-analysis
+leases, and the runtime resource policy restricts invocation to the proxy role.
+Their deployed behavior must be checked with the [release validation runbook](release-validation.md).
+These controls do not make model explanations factual. The
+[security checklist](security-checklist.md) tracks the remaining release evidence.
 
 Implementation references:
 

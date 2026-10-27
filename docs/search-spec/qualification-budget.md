@@ -1,8 +1,10 @@
 # Qualification budget
 
 The user approved a **USD 200 total qualification ceiling on 2026-10-27**.
-The selected Region is `eu-west-1`; the account and profile are supplied explicitly
-to the test harness and recorded in its private run manifest.
+The initial component tests used `eu-west-1`. The user subsequently authorized
+updating the existing test deployment in `us-east-1`, coordinated with its model
+upgrade, instead of deploying a second environment. The account and profile are
+supplied explicitly and recorded in each private run manifest.
 The ceiling includes infrastructure, ingestion, model calls, retries, logs,
 load generators, rebuilds and cleanup time. It does not change the performance
 or correctness requirements in `acceptance-targets.yaml`.
@@ -11,7 +13,7 @@ The managed DynamoDB transaction test passed on 2026-10-27. It used three
 disposable tables, published 17 events across 16 shards, checked duplicate/stale
 revision handling and lease fencing, and verified deletion of all three tables.
 It reserved USD 1; its conservative request bound was USD 0.1793. This is an
-estimate, not a reconciled AWS bill. No paid model calls have been made.
+estimate, not a reconciled AWS bill. That transaction test made no model calls.
 
 The managed search phase reserves USD 50 for private component tests and
 cleanup. Its reviewed plan creates 108 resources in separate local state with a
@@ -45,6 +47,37 @@ functions, tables and network were removed, while IAM cleanup was denied.
 The phase reserve remains held for that cleanup and the corrected rerun.
 No cost figure here is a reconciled bill.
 
+The corrected component rerun can reuse the five roles whose immutable IDs were
+verified against the failed run. A fresh isolated plan references them as data
+and must create or manage no IAM roles; its own temporary policies are removed
+on teardown. This does not waive or claim completion of the original role cleanup.
+That corrected rerun was cancelled before native assertions when the user chose
+one combined deployment. All 61 resources created by the rerun were removed and
+its temporary role policies were removed; the five original retained roles
+remain. The USD 50 component reservation remains held pending bill and cleanup
+reconciliation. Cancellation is not a passing qualification result.
+
+## Existing deployment update
+
+USD 75 is reserved within the same USD 200 ceiling for the combined update and
+checks, leaving USD 74 unallocated while the prior USD 51 remains held.
+The bounded phase allows 48 hours including cleanup headroom. It uses the
+existing environment state, API, CloudFront distribution, user pool and runtime.
+
+Verified `us-east-1` unit prices on 2026-10-27:
+
+| Item | Unit price | Provision |
+|---|---:|---:|
+| OpenSearch r6g.large.search | USD 0.167/node-hour | 2 nodes |
+| Interface VPC endpoints | USD 0.010/interface-hour | 14 interfaces |
+
+The nodes and endpoint interfaces total USD 0.474/hour, or USD 22.752 for
+48 hours. Add a USD 30 allowance for storage, requests, logs, build, runtime,
+guardrails and cleanup, and USD 20 for bounded model contracts: the conservative
+phase estimate is USD 72.752 against the USD 75 reservation. These are reserves,
+not measured charges. The running environment continues to incur costs; a
+longer retention period needs a renewed budget calculation.
+
 Before deployment, record current unit prices and a worst-case estimate for the
 bounded run. Reserve cleanup headroom. Track test requests, tokens, failed
 attempts, resource hours and remaining budget locally; do not depend on delayed
@@ -57,12 +90,13 @@ A smaller model sample or search-only load test must be reported under its
 actual scope; it cannot pass the full-model gate. Any gate that cannot fit this
 budget remains unqualified.
 
-The current six-step graph makes at least one Sonnet 4.6 call and thirteen Haiku
-4.5 calls per routine, before tool turns and retries. The official Bedrock pricing
-page's Global Cross-region table for Europe (Ireland), checked on 2026-10-27,
-lists Sonnet input/output at USD 3/15 per million tokens and Haiku at USD 1/5.
+The current six-step graph makes at least one Sonnet 5.5 call and thirteen Haiku
+5.5 calls per routine, before tool turns and retries. The official Bedrock pricing
+page's Global Cross-region table for US East (N. Virginia), checked on 2026-10-27,
+lists Sonnet input/output at USD 2/10 per million tokens and standard-context
+Haiku at USD 0.10/0.50. The separate Haiku long-context row lists USD 0.50/2.50.
 An illustrative 3,000 input and 500 output tokens per call would cost about
-USD 0.088/routine, or USD 25,344 for the four-hour soak alone, before guardrails
+USD 0.01815/routine, or USD 5,227.20 for the four-hour soak alone, before guardrails
 and infrastructure. These token counts are assumptions, not measured usage or
 a minimum cost. A full-model soak cannot be represented by the bounded component
 test or silently shortened to claim the gate passes.

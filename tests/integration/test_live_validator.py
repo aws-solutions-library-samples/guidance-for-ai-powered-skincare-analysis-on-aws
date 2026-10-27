@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from tests.live_sse import read_events, run_integration_test, validate_events
+from tests.live_sse import iter_events, read_events, run_integration_test, validate_events, validate_timings
 from tests.integration.test_pipeline import collect, pipeline, request_payload
 
 
@@ -59,10 +59,41 @@ def test_sse_frames_preserve_utf8_and_multiline_json():
     payload = json.dumps(event, ensure_ascii=False, indent=2)
 
     class Response:
-        def iter_lines(self):
+        def iter_lines(self, **kwargs):
             return iter([b": heartbeat", *(f"data: {line}".encode() for line in payload.splitlines()), b""])
 
     assert read_events(Response()) == [event]
+
+
+def test_reader_yields_before_the_rest_of_the_response_arrives():
+    class Response:
+        def iter_lines(self, chunk_size):
+            assert chunk_size == 1
+            yield b'data: {"type": "multiagent_node_start"}'
+            yield b""
+            raise RuntimeError("Later network read")
+
+    reader = iter_events(Response())
+    assert next(reader)["type"] == "multiagent_node_start"
+    with pytest.raises(RuntimeError, match="Later network"):
+        next(reader)
+
+
+def test_truncated_frame_fails_even_if_json_is_valid():
+    class Response:
+        def iter_lines(self, **kwargs):
+            yield b'data: {"type": "multiagent_result"}'
+
+    with pytest.raises(ValueError, match="inside an SSE frame"):
+        read_events(Response())
+
+
+def test_timing_checker_rejects_buffered_success_and_long_idle_gap():
+    events = [{"type": "multiagent_node_stop"}] * 3
+    assert validate_timings(events, [1, 5, 10]) == []
+    assert validate_timings(events, [10, 10.001, 10.002])
+    assert validate_timings(events, [31, 40, 50])
+    assert validate_timings(events, [1, 62, 80])
 
 
 def test_http_failure_returns_false_without_reading_success(monkeypatch):

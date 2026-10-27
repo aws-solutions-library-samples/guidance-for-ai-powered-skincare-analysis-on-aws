@@ -2,7 +2,8 @@
 
 prepare makes a local Terraform copy and saved plan. execute applies that plan,
 runs the managed catalog checks, and destroys only the resources in its own
-state in a finally block. No model calls, production state or existing resources.
+state in a finally block. No model calls or production state. A role-only failed
+run may supply its own verified roles; their original cleanup state is preserved.
 """
 
 import argparse
@@ -32,6 +33,8 @@ from tests.search_fixtures import product
 
 REGION = "eu-west-1"
 RESERVED_USD = 50
+SERVICE_ROLE = "AWSServiceRoleForAmazonOpenSearchService"
+SERVICE_POLICY = "arn:aws:iam::aws:policy/aws-service-role/AmazonOpenSearchServiceRolePolicy"
 
 
 def file_hash(path):
@@ -99,7 +102,8 @@ def artifact_fingerprints(directory):
         (".dockerignore", "Dockerfile.agentcore", "agentcore_entrypoint.py", "catalog.py",
          "config.py", "pyproject.toml", "uv.lock", "probe.zip", "plan.json",
          "catalog_worker/handler.py", "catalog_worker/.build/function.zip",
-         "api_proxy/.build/function.zip"),
+          "api_proxy/.build/function.zip")
+        + (("role-reuse.json",) if (directory / "role-reuse.json").exists() else ()),
     )
 
 
@@ -136,11 +140,164 @@ def session(profile, account):
     return result
 
 
-def prepare(directory, *, profile, account):
+def load_role_reuse(directory, *, profile, account):
+    """Identify only the five role instances retained by a terminal failed run."""
+    directory = directory.resolve()
+    report = json.loads((directory / "report.json").read_text())
+    if (report.get("status") != "failed" or not report.get("finished_at")
+        or report.get("cleanup_verified") is not False
+        or report.get("account") != account or report.get("profile") != profile
+        or report.get("region") != REGION
+        or not re.fullmatch(r"sbq-[a-f0-9]{12}", report.get("prefix", ""))):
+        raise ValueError("Role reuse requires a terminal failed run in the approved account/profile")
+    prefix = report["prefix"]
+    expected = {
+        **{f'aws_iam_role.catalog["{kind}"]': f"{prefix}-catalog-{kind}"
+           for kind in ("admin", "worker", "maintenance")},
+        "aws_iam_role.qualification_reader": f"{prefix}-reader-probe",
+        "aws_iam_service_linked_role.qualification_opensearch": SERVICE_ROLE,
+    }
+    state = json.loads((directory / "terraform/terraform.tfstate").read_text())
+    roles = {}
+    for resource in state.get("resources", []):
+        if resource.get("mode") != "managed":
+            continue
+        for instance in resource.get("instances", []):
+            address = f'{resource["type"]}.{resource["name"]}'
+            if "index_key" in instance:
+                address += f'[{json.dumps(instance["index_key"])}]'
+            attrs = instance["attributes"]
+            name = expected.get(address)
+            path = "aws-service-role/opensearchservice.amazonaws.com/" if name == SERVICE_ROLE else ""
+            if (not name or address in roles or attrs.get("name") != name
+                or attrs.get("arn") != f"arn:aws:iam::{account}:role/{path}{name}"
+                or not attrs.get("unique_id") or instance.get("status") == "tainted"):
+                raise ValueError("Role reuse state contains unexpected or unidentifiable resources")
+            roles[address] = {"name": name, "arn": attrs["arn"], "role_id": attrs["unique_id"]}
+    if set(roles) != set(expected):
+        raise ValueError("Role reuse requires exactly the five retained test roles")
+    original = json.loads((directory / "plan.json").read_text())
+    created = {
+        change["address"] for change in original.get("resource_changes", [])
+        if change.get("mode") == "managed" and change["change"]["actions"] == ["create"]
+    }
+    if not set(expected) <= created:
+        raise ValueError("Role reuse has no original creation-plan evidence")
+    return {
+        "directory": str(directory), "prefix": prefix, "account": account, "profile": profile,
+        "roles": roles,
+        "parent_sha256": {
+            name: file_hash(directory / name)
+            for name in ("report.json", "plan.json", "terraform/terraform.tfstate")
+        },
+    }
+
+
+def verify_reused_roles(reuse, aws):
+    """Check immutable identities, trust and empty test permissions before writes."""
+    directory = Path(reuse["directory"])
+    if any(file_hash(directory / name) != digest for name, digest in reuse["parent_sha256"].items()):
+        raise ValueError("Role reuse predecessor changed; prepare a new run")
+    iam = aws.client("iam", config=Config(retries={"total_max_attempts": 1}, read_timeout=10))
+    for expected in reuse["roles"].values():
+        name = expected["name"]
+        role = iam.get_role(RoleName=name)["Role"]
+        principal = "opensearchservice.amazonaws.com" if name == SERVICE_ROLE else "lambda.amazonaws.com"
+        trust = {"Version": "2012-10-17", "Statement": [{
+            "Effect": "Allow", "Principal": {"Service": principal}, "Action": "sts:AssumeRole",
+        }]}
+        inline = iam.list_role_policies(RoleName=name)
+        attached = iam.list_attached_role_policies(RoleName=name)
+        policies = {item["PolicyArn"] for item in attached["AttachedPolicies"]}
+        if (role["RoleId"] != expected["role_id"] or role["Arn"] != expected["arn"]
+            or role["AssumeRolePolicyDocument"] != trust or role.get("PermissionsBoundary")
+            or inline.get("IsTruncated") or attached.get("IsTruncated") or inline["PolicyNames"]
+            or policies != ({SERVICE_POLICY} if name == SERVICE_ROLE else set())):
+            raise ValueError(f"Role reuse identity, trust or permissions changed: {name}")
+
+
+def configure_role_reuse(tf):
+    """Reference owned roles as data; never import, transfer or destroy them."""
+    replacements = {
+        ("search.tf", "aws_iam_role", "catalog"): '''data "aws_iam_role" "reused_catalog" {
+  for_each = local.catalog_roles
+  name = "${local.prefix}-catalog-${each.key}"
+}''',
+        ("qualification.tf", "aws_iam_role", "qualification_reader"): '''data "aws_iam_role" "reused_reader" {
+  name = "${local.prefix}-reader-probe"
+}''',
+        ("qualification.tf", "aws_iam_service_linked_role", "qualification_opensearch"):
+            f'data "aws_iam_role" "reused_opensearch" {{\n  name = "{SERVICE_ROLE}"\n}}',
+    }
+    for (filename, kind, name), replacement in replacements.items():
+        path = tf / filename
+        text, count = re.subn(
+            rf'^resource "{kind}" "{name}" \{{\n.*?^\}}', lambda match: replacement,
+            path.read_text(), flags=re.MULTILINE | re.DOTALL,
+        )
+        if count != 1:
+            raise ValueError("Role reuse Terraform template changed")
+        path.write_text(text)
+    for path in tf.glob("*.tf"):
+        text = path.read_text()
+        for original, replacement in (
+            ("aws_iam_role.catalog", "data.aws_iam_role.reused_catalog"),
+            ("aws_iam_role.qualification_reader", "data.aws_iam_role.reused_reader"),
+            ("aws_iam_service_linked_role.qualification_opensearch", "data.aws_iam_role.reused_opensearch"),
+        ):
+            text = text.replace(original, replacement)
+        if path.name == "search.tf":
+            # The component invokes only the Lambda probe. Do not create an
+            # unused AgentCore role or imply that its trust/network was tested.
+            text = text.replace(
+                "[aws_iam_role.agentcore_execution.arn, data.aws_iam_role.reused_reader.arn]",
+                "data.aws_iam_role.reused_reader.arn",
+            )
+        path.write_text(text)
+
+
+def validate_reuse_plan(planned, reuse):
+    for change in planned.get("resource_changes", []):
+        if change.get("mode") == "managed" and change["type"] in ("aws_iam_role", "aws_iam_service_linked_role"):
+            raise ValueError("A reuse run cannot create or manage IAM roles")
+    observed = {}
+    def collect(module):
+        for resource in module.get("resources", []):
+            if resource.get("mode") == "data" and resource.get("type") == "aws_iam_role":
+                values = resource["values"]
+                identity = (values["arn"], values["unique_id"])
+                if values["name"] in observed and observed[values["name"]] != identity:
+                    raise ValueError("Verified roles disagree across Terraform plan values")
+                observed[values["name"]] = identity
+        for child in module.get("child_modules", []):
+            collect(child)
+    # Terraform retains data sources resolved during refresh in prior_state;
+    # planned_values may contain only the data reads deferred until apply.
+    collect(planned.get("prior_state", {}).get("values", {}).get("root_module", {}))
+    collect(planned.get("planned_values", {}).get("root_module", {}))
+    expected = {role["name"]: (role["arn"], role["role_id"]) for role in reuse["roles"].values()}
+    if observed != expected:
+        raise ValueError("The plan does not reference exactly the verified test roles")
+
+
+def verify_oracle_results(results, expected):
+    """Require complete ordered retrieval agreement as well as final selection."""
+    for actual, wanted in zip(results, expected, strict=True):
+        assert list(zip(actual["candidate_ids"], actual["candidate_counts"], strict=True)) == wanted
+        assert list(zip(actual["ids"], actual["counts"], strict=True)) == wanted[:3]
+        assert actual["status"] == ("matched" if wanted else "no_match")
+
+
+def prepare(directory, *, profile, account, reuse_roles_from=None):
     validate_worker_archive(ROOT)
     source_sha256 = source_fingerprints(ROOT)
-    session(profile, account)
+    reuse = load_role_reuse(reuse_roles_from, profile=profile, account=account) if reuse_roles_from else None
+    aws = session(profile, account)
+    if reuse:
+        verify_reused_roles(reuse, aws)
     directory.mkdir(parents=True, exist_ok=False)
+    if reuse:
+        (directory / "role-reuse.json").write_text(json.dumps(reuse, indent=2) + "\n")
     tf = directory / "terraform"
     shutil.copytree(ROOT / "terraform", tf, ignore=shutil.ignore_patterns(
         ".terraform", "*.tfstate*", "*.tfvars", "backend.hcl", ".build", "shared",
@@ -166,7 +323,7 @@ def prepare(directory, *, profile, account):
     shutil.copyfile(directory / "catalog_worker/.build/function.zip", probe)
     with zipfile.ZipFile(probe, "a", compression=zipfile.ZIP_DEFLATED) as archive:
         archive.writestr("qualification_probe.py", (ROOT / "tests/aws_search_probe.py").read_bytes())
-    prefix = "sbq-" + uuid4().hex[:12]
+    prefix = reuse["prefix"] if reuse else "sbq-" + uuid4().hex[:12]
     versions = tf / "versions.tf"
     versions.write_text(versions.read_text().replace('backend "s3" {}', 'backend "local" {}').replace(
         'provider "aws" {', f'provider "aws" {{\n  allowed_account_ids = ["{account}"]',
@@ -251,6 +408,8 @@ resource "aws_lambda_function" "qualification_probe" {
 }
 '''
     (tf / "qualification.tf").write_text(extra.replace("__READ_STATEMENTS__", read_statements))
+    if reuse:
+        configure_role_reuse(tf)
     targets = []
     for name in ("search.tf", "search_monitoring.tf", "qualification.tf"):
         targets.extend(f"{kind}.{name}" for kind, name in re.findall(
@@ -280,9 +439,13 @@ resource "aws_lambda_function" "qualification_probe" {
     (directory / "plan.json").write_bytes(planned)
     changes = [change for change in json.loads(planned)["resource_changes"] if change["mode"] == "managed"]
     assert changes and all(change["change"]["actions"] == ["create"] for change in changes)
-    terraform(tf, ["plan", "-input=false", "-no-color", "-var=environment=test", "-var=aws_region=eu-west-1",
-                   "-out=prerequisite.tfplan", "-target=aws_iam_service_linked_role.qualification_opensearch"],
-              directory / "prerequisite-plan.log")
+    if reuse:
+        validate_reuse_plan(json.loads(planned), reuse)
+        report["prior_role_cleanup_outstanding"] = [role["name"] for role in reuse["roles"].values()]
+    else:
+        terraform(tf, ["plan", "-input=false", "-no-color", "-var=environment=test", "-var=aws_region=eu-west-1",
+                       "-out=prerequisite.tfplan", "-target=aws_iam_service_linked_role.qualification_opensearch"],
+                  directory / "prerequisite-plan.log")
     if source_fingerprints(ROOT) != source_sha256:
         raise ValueError("Source provenance changed during preparation; prepare a new run")
     report.update(planned_resources=len(changes), status="planned", provenance={
@@ -369,12 +532,14 @@ def cloud_checks(directory, report, aws):
                 and (not excluded or (record.ingredient_list_complete and record.ingredient_resolution_complete))
                 and (cap is None or record.price_minor <= cap)):
                 matches.append((record.product_id, count))
-        expected.append(sorted(matches, key=lambda item: (-item[1], item[0]))[:3])
+        expected.append(sorted(matches, key=lambda item: (-item[1], item[0]))[:100])
         cases.append(case)
+    queries = directory / "queries.json"
+    queries.write_text(json.dumps({"requests": cases, "expected": expected}, indent=2) + "\n")
+    report["queries_sha256"] = file_hash(queries)
     def oracle():
         result = invoke("reader", {"requests": cases})
-        for actual, wanted in zip(result["results"], expected, strict=True):
-            assert list(zip(actual["ids"], actual["counts"])) == wanted
+        verify_oracle_results(result["results"], expected)
         return result
     report["first_generation"] = oracle()
     report["writer_permissions"] = invoke("writer", {})
@@ -386,7 +551,10 @@ def cloud_checks(directory, report, aws):
     report["rollback"] = invoke("admin", {"action": "activate", "generation": "products-demo-v1"})
     invoke("maintenance", {})
     report["rolled_back_generation"] = oracle()
-    report.update(records=240, oracle_cases=72, invocations=invocations, qualification_checks="passed")
+    report.update(
+        records=240, oracle_cases=72, ordered_top_100_and_top_3_agreement=True,
+        invocations=invocations, qualification_checks="passed",
+    )
 
 
 def execute(directory, *, profile, account):
@@ -400,12 +568,17 @@ def execute(directory, *, profile, account):
     # This account-wide role was absent at preflight. Do not claim or destroy a
     # role that somebody else creates between the plan and the apply.
     iam = aws.client("iam")
-    try:
-        iam.get_role(RoleName="AWSServiceRoleForAmazonOpenSearchService")
-    except iam.exceptions.NoSuchEntityException:
-        pass
+    reuse = json.loads((directory / "role-reuse.json").read_text()) if (directory / "role-reuse.json").exists() else None
+    if reuse:
+        verify_reused_roles(reuse, aws)
+        validate_reuse_plan(json.loads((directory / "plan.json").read_text()), reuse)
     else:
-        raise RuntimeError("OpenSearch service role now exists; revise ownership before applying")
+        try:
+            iam.get_role(RoleName=SERVICE_ROLE)
+        except iam.exceptions.NoSuchEntityException:
+            pass
+        else:
+            raise RuntimeError("OpenSearch service role now exists; revise ownership before applying")
     report.update(status="applying", started_at=time.time())
     report_file.write_text(json.dumps(report, indent=2) + "\n")
     try:
@@ -413,14 +586,16 @@ def execute(directory, *, profile, account):
         # The first one-graph run failed with AWS's "enable a service-linked role"
         # validation error immediately after IAM creation. Preserve that failed
         # run; allow IAM propagation before testing the separate domain phase.
-        terraform(directory / "terraform", ["apply", "-input=false", "-no-color", "prerequisite.tfplan"],
-                  directory / "prerequisite-apply.log", timeout=300)
-        role = iam.get_role(RoleName="AWSServiceRoleForAmazonOpenSearchService")["Role"]
+        if not reuse:
+            terraform(directory / "terraform", ["apply", "-input=false", "-no-color", "prerequisite.tfplan"],
+                      directory / "prerequisite-apply.log", timeout=300)
+        role = iam.get_role(RoleName=SERVICE_ROLE)["Role"]
         policies = iam.list_attached_role_policies(RoleName=role["RoleName"])["AttachedPolicies"]
         assert any(policy["PolicyName"] == "AmazonOpenSearchServiceRolePolicy" for policy in policies)
         report["service_role_verified_at"] = time.time()
         report_file.write_text(json.dumps(report, indent=2) + "\n")
-        time.sleep(60)
+        if not reuse:
+            time.sleep(60)
         # A saved plan is stale after its prerequisite changes the local state.
         # Regenerate against the frozen copy; forbid replacement, update or
         # deletion, and forbid adding resources outside the reviewed plan.
@@ -434,6 +609,9 @@ def execute(directory, *, profile, account):
         for change in planned["resource_changes"]:
             if change["mode"] == "managed":
                 assert change["address"] in approved and change["change"]["actions"] in (["create"], ["no-op"])
+        if reuse:
+            verify_reused_roles(reuse, aws)
+            validate_reuse_plan(planned, reuse)
         (directory / "execution-plan.json").write_text(json.dumps(planned, indent=2) + "\n")
         report["execution_plan_sha256"] = file_hash(directory / "terraform/execution.tfplan")
         report["execution_plan_json_sha256"] = file_hash(directory / "execution-plan.json")
@@ -457,6 +635,10 @@ def execute(directory, *, profile, account):
             state = json.loads((directory / "terraform/terraform.tfstate").read_text())
             assert not [resource for resource in state.get("resources", []) if resource["mode"] == "managed"]
             report["cleanup_verified"] = True
+            if reuse:
+                verify_reused_roles(reuse, aws)
+                report["reused_roles_restored"] = True
+                report["cleanup_scope"] = "All resources from this run removed; five predecessor roles still require cleanup"
         except Exception as exc:
             report.update(cleanup_verified=False, cleanup_error=str(exc))
         report["finished_at"] = time.time()
@@ -472,7 +654,15 @@ if __name__ == "__main__":
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--profile", required=True)
     parser.add_argument("--account", required=True)
+    parser.add_argument("--reuse-roles-from", type=Path)
     args = parser.parse_args()
     if not args.directory.is_absolute():
         raise ValueError("Use an absolute dedicated qualification directory")
-    (prepare if args.action == "prepare" else execute)(args.directory, profile=args.profile, account=args.account)
+    if args.action == "prepare":
+        if args.reuse_roles_from and not args.reuse_roles_from.is_absolute():
+            raise ValueError("Use an absolute predecessor directory")
+        prepare(args.directory, profile=args.profile, account=args.account, reuse_roles_from=args.reuse_roles_from)
+    else:
+        if args.reuse_roles_from:
+            raise ValueError("Role reuse is fixed by preparation, not execution arguments")
+        execute(args.directory, profile=args.profile, account=args.account)

@@ -55,6 +55,8 @@ Missing/stale source health, integrity failures and overdue reconciliation preve
 admission. A live feed requires a fresh heartbeat; an immutable snapshot has an
 explicitly different health mode.
 
+The skin-analysis agent uses Claude Sonnet 5.5; planning, ingredients, and product agents use Claude Haiku 5.5. Strands invokes Bedrock ConverseStream with native strict tool schemas. Pydantic and catalog checks enforce value and business constraints after generation. See [model configuration](model-configuration.md) for reasoning settings, schema compatibility, and upgrade tests.
+
 Generation registration, fenced checkpoints and source-watermark cutover are
 transactional. Runtime resolves the physical generation from the manifest.
 The operational alias is updated atomically without deleting indices. Retained
@@ -90,7 +92,8 @@ The API client supports SSE comments, CRLF, multiline data, split UTF-8 chunks a
 | S3, CodeBuild and ECR | Source archive, ARM64 image build and immutable image publication. |
 | CloudWatch | Runtime, build and API observability. |
 
-`terraform/shared/` owns account-level API Gateway logging configuration and the OpenSearch service-linked role. Import pre-existing shared resources before applying. Each application environment has its own state key. Deployment resolves the Region once and passes it to provisioning and migration.
+Deployment reuses an existing account-level API Gateway logging role without modifying it. When no role is configured, `terraform/shared/` creates and owns the shared logging resources. Each application environment has its own state key. Deployment resolves the region once and passes it to provisioning and migration.
+The account-wide OpenSearch service-linked role is retained separately; follow the [catalog operations runbook](search-spec/operations.md) when it already exists.
 
 A shared source-file manifest controls runtime packaging and change detection. It includes the catalog and Python lockfile. Image tags follow the complete content hash. Archives are recreated so deleted files cannot survive in subsequent builds. API stage deployment similarly tracks configuration content, including integration and OPTIONS response settings.
 
@@ -166,7 +169,7 @@ export. Until then, use the descriptions above for these implementation details.
 - [AgentCore VPC networking](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agentcore-vpc.html)
 - [AgentCore JWT authentication](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/inbound-jwt-authorizer.html)
 - [AgentCore runtime security](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-security-best-practices.html)
-- [Strands structured output](https://strandsagents.com/docs/user-guide/concepts/agents/structured-output)
+- [Strands structured output](https://strandsagents.com/latest/documentation/docs/user-guide/concepts/agents/structured-output/)
 - [AgentCore Python SDK](https://github.com/aws/bedrock-agentcore-sdk-python)
 - [DynamoDB query pagination](https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/Query.Pagination.html)
 - [React effect cleanup](https://react.dev/learn/synchronizing-with-effects)

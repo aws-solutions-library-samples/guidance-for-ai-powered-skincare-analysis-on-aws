@@ -18,6 +18,16 @@ from agents.search.repository import CanonicalProductRepository
 from agents.search.service import ExactSearchService
 
 
+class RecordingAdapter(OpenSearchExactAdapter):
+    """Capture the actual bounded retrieval used by selection, without another query."""
+
+    candidates = ()
+
+    def retrieve(self, request, budget):
+        self.candidates = super().retrieve(request, budget)
+        return self.candidates
+
+
 def handler(event, context):
     session = boto3.Session()
     endpoint = os.environ["OPENSEARCH_ENDPOINT"]
@@ -35,7 +45,7 @@ def handler(event, context):
         raise AssertionError("Projection writer was permitted to search")
     metadata = CatalogMetadata(resource, table_name=metadata_table, catalog_id="demo")
     config = metadata.configuration()
-    adapter = OpenSearchExactAdapter(search, config)
+    adapter = RecordingAdapter(search, config)
     repository = CanonicalProductRepository(resource, table_name=table, catalog_id="demo")
     service = ExactSearchService(config, adapter, repository)
     # Report cold connections separately; this is a correctness probe, not an SLO.
@@ -82,9 +92,24 @@ def handler(event, context):
             taxonomy_version=config.taxonomy_version, **fields,
         )
         budget = SearchBudget(config.step_deadline_seconds)
-        result = service.search(wanted, readiness=metadata.readiness(config, budget), budget=budget)
+        try:
+            result = service.search(wanted, readiness=metadata.readiness(config, budget), budget=budget)
+        except ValueError as exc:
+            # A probe may verify that callers cannot override the catalog's
+            # server-owned mode. Preserve the real rejection; never convert it
+            # into a successful no-match search or weaken service validation.
+            if (wanted.eligibility_mode == config.eligibility_mode
+                or str(exc) != "Search request has mismatched eligibility_mode"):
+                raise
+            results.append({
+                "candidate_ids": [], "candidate_counts": [], "ids": [], "counts": [],
+                "status": "rejected", "error": str(exc), "trace": None,
+            })
+            continue
         final = service.finalize((result,), budget=SearchBudget(config.step_deadline_seconds))[0]
         results.append({
+            "candidate_ids": [item.product_id for item in adapter.candidates],
+            "candidate_counts": [item.score for item in adapter.candidates],
             "ids": [item.product.product_id for item in final.products],
             "counts": [len(item.matched_ingredient_ids) for item in final.products],
             "status": final.status, "trace": result.trace.model_dump(mode="json"),
