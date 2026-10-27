@@ -58,10 +58,10 @@ data "aws_iam_policy_document" "agentcore_permissions" {
     ]
     resources = [
       # Exact primary/fast model IDs; global inference resolves across regions.
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-4-6",
-      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-4-5-20251001-v1:0",
-      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-sonnet-4-6",
-      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-haiku-4-5-20251001-v1:0",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:*::foundation-model/anthropic.claude-haiku-5-5",
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-sonnet-5-5",
+      "arn:aws:bedrock:${local.region}:${local.account_id}:inference-profile/global.anthropic.claude-haiku-5-5",
     ]
   }
 
