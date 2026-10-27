@@ -58,7 +58,7 @@ export const RoutineSidebar = ({
               p => p.step_name.toLowerCase() === step.step_name.toLowerCase(),
             );
             const status = partial?.status || 'waiting';
-            const isReady = status === 'ready';
+            const isReady = status === 'ready' || status === 'no_match';
             const isIngredients = status === 'ingredients';
             // Show spinner for all waiting steps once we're past planning phase
             const isActive = !isReady && !isIngredients && (
@@ -133,7 +133,7 @@ export const RoutineSidebar = ({
                     {/* Status text */}
                     {isReady && partial?.products && (
                       <p className="text-[11px] text-[#8B9D83] mt-1">
-                        ✓ {partial.products.length} product{partial.products.length > 1 ? 's' : ''} matched
+                        {status === 'no_match' ? 'No products matched' : `✓ ${partial.products.length} product${partial.products.length > 1 ? 's' : ''} matched`}
                       </p>
                     )}
                     {isIngredients && !ingredientNames.length && (
@@ -161,7 +161,7 @@ export const RoutineSidebar = ({
       <div className="mt-3 pt-3 border-t border-gray-100">
         <div className="flex items-center justify-between text-xs text-gray-500">
           <span>
-            {partialRoutine.filter(p => p.status === 'ready').length} of {steps.length} complete
+            {partialRoutine.filter(p => p.status === 'ready' || p.status === 'no_match').length} of {steps.length} complete
           </span>
           <div className="flex gap-1">
             {steps.map((step, i) => {
@@ -172,7 +172,7 @@ export const RoutineSidebar = ({
                 <div
                   key={i}
                   className={`w-2 h-2 rounded-full transition-colors ${
-                    partial?.status === 'ready'
+                    partial?.status === 'ready' || partial?.status === 'no_match'
                       ? 'bg-[#8B9D83]'
                       : partial?.status === 'ingredients'
                         ? 'bg-[#B76E79]'

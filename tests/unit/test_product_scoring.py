@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from agents.product_repository import _compute_position_scores, _normalize_ingredients
+from experiments.search.legacy_repository import _compute_position_scores, _normalize_ingredients
 
 
 class TestNormalizeIngredients:

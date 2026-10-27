@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import { Camera, X, RotateCcw, Check, Upload } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import type { AnalysisErrorCode } from '../utils/analysisErrors';
+import type { ReactNode } from 'react';
 
 interface CameraCaptureProps {
   onComplete: (images: string[]) => void;
@@ -12,9 +13,11 @@ interface CameraCaptureProps {
   errorCode?: AnalysisErrorCode;
   requestId?: string;
   onSignIn?: () => void;
+  preferencesForm?: ReactNode;
+  preferencesValid?: boolean;
 }
 
-export const CameraPage = ({ onComplete, onCancel, error, errorCode, requestId, onSignIn }: CameraCaptureProps) => {
+export const CameraPage = ({ onComplete, onCancel, error, errorCode, requestId, onSignIn, preferencesForm, preferencesValid = true }: CameraCaptureProps) => {
   const webcamRef = useRef<Webcam>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [isReady, setIsReady] = useState(false);
@@ -183,7 +186,7 @@ export const CameraPage = ({ onComplete, onCancel, error, errorCode, requestId, 
   };
 
   const handleComplete = () => {
-    if (capturedImages.length === 3 && !isUploading) onComplete(capturedImages);
+    if (capturedImages.length === 3 && !isUploading && preferencesValid) onComplete(capturedImages);
   };
 
   return (
@@ -358,6 +361,7 @@ export const CameraPage = ({ onComplete, onCancel, error, errorCode, requestId, 
             </div>
 
             {/* Controls */}
+            {preferencesForm && <div className="mt-4">{preferencesForm}</div>}
             <div className="bg-white/95 backdrop-blur-md rounded-xl sm:rounded-2xl p-3 sm:p-6 mt-3 sm:mt-4 shadow-2xl border-2 border-gray-200">
               <div className="flex gap-2 sm:gap-4 justify-center flex-wrap">
                 <button
@@ -390,7 +394,7 @@ export const CameraPage = ({ onComplete, onCancel, error, errorCode, requestId, 
                 )}
                 <button
                   onClick={handleComplete}
-                  disabled={capturedImages.length !== 3 || isUploading}
+                  disabled={capturedImages.length !== 3 || isUploading || !preferencesValid}
                   className="gap-1.5 sm:gap-2 px-3 sm:px-6 py-2.5 sm:py-3 rounded-lg bg-green-600 text-white hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center shadow-lg text-sm sm:text-base"
                 >
                   <Check size={18} />

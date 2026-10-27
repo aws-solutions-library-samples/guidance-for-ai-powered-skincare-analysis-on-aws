@@ -11,9 +11,10 @@ interface ResultsPageProps {
   results: CompiledRoutine;
   onStartOver: () => void;
   skinProfile?: SkinAnalysisProfile | null;
+  preferenceLabels?: Record<string, string>;
 }
 
-export function ResultsPage({ results, onStartOver, skinProfile }: ResultsPageProps) {
+export function ResultsPage({ results, onStartOver, skinProfile, preferenceLabels = {} }: ResultsPageProps) {
   const [selectedName, setSelectedName] = useState('');
   const [showSkinProfile, setShowSkinProfile] = useState(false);
   const detailsRef = useRef<HTMLDivElement>(null);
@@ -40,7 +41,7 @@ export function ResultsPage({ results, onStartOver, skinProfile }: ResultsPagePr
           <div className="inline-flex items-center gap-2 bg-white/20 px-4 py-2 rounded-full mb-3 text-sm"><Sparkles size={14} />Your Personalized Routine</div>
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
             <div>
-              <h1 className="text-3xl font-serif font-bold mb-2">Perfect for You</h1>
+              <h1 className="text-3xl font-serif font-bold mb-2">{steps.every(step => step.products.length === 0) ? 'No matching products' : 'Your skincare routine'}</h1>
               <p>{profile.skin_type} skin · Skin age: {profile.age}</p>
               <div className="flex flex-wrap gap-2 mt-3">
                 {profile.concerns.map((concern, index) => <span key={`${concern}-${index}`} className="px-3 py-1 bg-white/20 rounded-full text-sm">{concern}</span>)}
@@ -58,6 +59,14 @@ export function ResultsPage({ results, onStartOver, skinProfile }: ResultsPagePr
         </div>
       </header>
       <main className="max-w-7xl mx-auto p-4 md:p-8">
+        {results.applied_preferences && <section className="rounded-2xl bg-white p-4 mb-6 text-sm text-gray-700" aria-label="Applied preferences">
+          <h2 className="font-semibold mb-2">Applied preferences</h2>
+          {!!results.applied_preferences.excluded_ingredient_ids?.length && <p>Excluded from every step: {results.applied_preferences.excluded_ingredient_ids.map(id => preferenceLabels[id] ?? 'selected ingredient').join(', ')}</p>}
+          {results.applied_preferences.must_have_by_category?.map(entry => <p key={entry.category_id}>Required in {entry.category_id}: {entry.ingredient_ids.map(id => preferenceLabels[id] ?? 'selected ingredient').join(', ')}</p>)}
+          {results.applied_preferences.market && <p>Market: {results.applied_preferences.market}</p>}
+          {results.applied_preferences.max_price_minor != null && <p>Maximum per product: {results.applied_preferences.currency} {(results.applied_preferences.max_price_minor / 100).toFixed(2)}</p>}
+          <p className="mt-2 text-gray-500">Counts show how many selected ingredients each product contains.</p>
+        </section>}
         <AnimatePresence>
           {showSkinProfile && skinProfile && (
             <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">

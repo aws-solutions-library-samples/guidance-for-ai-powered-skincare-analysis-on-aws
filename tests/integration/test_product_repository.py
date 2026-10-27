@@ -4,7 +4,7 @@ from unittest.mock import Mock
 
 import pytest
 
-from agents.product_repository import ProductService
+from experiments.search.legacy_repository import ProductService
 from catalog import SchemaMapping
 
 

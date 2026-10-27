@@ -3,11 +3,14 @@
 import socket
 import base64
 import io
+from unittest.mock import Mock
 
 import pytest
 from PIL import Image
 
 from agents.models import IngredientsAnalysisOutput, ProductAnalysisOutput, StepAnalysisResult
+from agents.search.contracts import Preferences, SearchResult, SearchTrace, SelectedProduct
+from tests.search_fixtures import configuration, product, request
 
 
 @pytest.fixture
@@ -44,13 +47,15 @@ def routine_state():
             "total_steps": 2, "benefits": ["Hydration"], "usage_notes": ["Use daily"],
         },
     })
-    return {
+    state = {
+        "request_id": "request-1", "preferences": Preferences(), "api_version": 2,
+        "product_service": Mock(),
         "step_analysis_data": plan.model_dump(),
         "ingredients_outputs": {
             f"ingredients_{step.step_name}": IngredientsAnalysisOutput(
                 step_name=step.step_name,
                 key_ingredients=[{
-                    "name": "Glycerin", "benefit": "Hydration",
+                    "ingredient_id": "ing-a", "name": "Glycerin", "benefit": "Hydration",
                     "why_for_you": "Helps dry skin", "usage": "Daily",
                 }],
                 analysis_notes="A gentle choice",
@@ -81,3 +86,27 @@ def routine_state():
             for step in plan.routine_steps
         },
     }
+    state["search_results"] = {
+        f"products_{step.step_name}": SearchResult(
+            request=request(
+                step_id=f"step-{step.step_name}", category_id=step.step_name,
+                preferred_ingredient_ids=("ing-a",),
+            ), status="matched",
+            products=(SelectedProduct(
+                product=product(
+                    f"id-{step.step_name}", name=f"Example {step.step_name}",
+                    category_id=step.step_name, ingredient_ids=["ing-a"],
+                    image_path="/products/example.jpg", price_minor=1200,
+                ),
+                matched_ingredient_ids=("ing-a",), matched_must_have_ingredient_ids=(),
+                preferred_count=1,
+            ),),
+            trace=SearchTrace(
+                retrieved=1, hydrated=1, hydration_batches=1, dependency_retries=0,
+                dropped_missing=0, dropped_ineligible=0, dropped_changed=0, elapsed_ms=1,
+            ),
+        ) for step in plan.routine_steps
+    }
+    state["product_service"].finalize.side_effect = lambda results: results
+    state["product_service"].config = configuration()
+    return state

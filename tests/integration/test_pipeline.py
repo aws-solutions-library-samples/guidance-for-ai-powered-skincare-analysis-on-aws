@@ -9,7 +9,8 @@ import base64
 import json
 import io
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock
+import time
 
 import pytest
 from PIL import Image
@@ -18,8 +19,12 @@ from strands.multiagent.base import MultiAgentResult, NodeResult, Status
 
 import agentcore_entrypoint as entrypoint
 from agents.compile_node import CompileNode
-from agents.models import StepAnalysisResult
+from agents.models import StepAnalysisResult, ProductExplanations
 from agents.orchestrator import Orchestrator, _all_dependencies_complete
+import agents.orchestrator as orchestration
+from agents.product_repository import ProductService
+from agents.search.catalog import IngredientEntry
+from tests.search_fixtures import configuration, engine_response, readiness
 from tests.live_sse import read_events, validate_events
 
 
@@ -40,8 +45,31 @@ async def collect(payload):
 @pytest.fixture
 def pipeline(monkeypatch, routine_state):
     orchestrator = Orchestrator.__new__(Orchestrator)
-    orchestrator.product_service = Mock()
-    orchestrator.product_service.has_products.return_value = True
+    metadata, repository, client = Mock(), Mock(), Mock()
+    metadata.configuration.return_value = configuration(categories=("Cleanser", "Sunscreen"))
+    metadata.readiness.side_effect = lambda *args: readiness(checked_at=time.time())
+    metadata.ingredients.return_value = {"ing-a": IngredientEntry(
+        ingredient_id="ing-a", display_name="Glycerin", taxonomy_version="fixture-v1",
+        review_state="synthetic_fixture", provenance="fixture",
+    )}
+    records = {
+        item.product.product_id: item.product
+        for result in routine_state["search_results"].values() for item in result.products
+    }
+    repository.catalog_id = "fixture"
+    repository.get_by_ids.side_effect = lambda ids, budget: {key: records[key] for key in ids if key in records}
+    client.transport.max_retries = 0
+
+    def search(**kwargs):
+        category = next(
+            item["term"]["category_id"] for item in kwargs["body"]["query"]["bool"]["filter"]
+            if "category_id" in item.get("term", {})
+        )
+        selected = [item for item in records.values() if item.category_id == category]
+        return engine_response(selected, [1] * len(selected))
+
+    client.search.side_effect = search
+    orchestrator.product_service = ProductService(metadata=metadata, repository=repository, client=client)
     plan = StepAnalysisResult.model_validate(routine_state["step_analysis_data"])
     skin = Mock()
     skin.model_dump.return_value = {"skin_type": "Dry", "concerns": ["dryness"]}
@@ -57,32 +85,22 @@ def pipeline(monkeypatch, routine_state):
                 yield {"type": "multiagent_node_stop", "node_id": name, "node_result": results[name]}
             yield {"type": "multiagent_result", "result": MultiAgentResult(status=Status.COMPLETED, results=results)}
 
-    class PrescribeGraph:
-        async def stream_async(self, task, invocation_state):
-            # Preserve the entire plan as data; agent instructions belong in
-            # system prompts, not appended to the guarded graph input.
-            payload = task.removeprefix("User skin analysis and routine plan:\n\n")
-            assert StepAnalysisResult.model_validate_json(payload) == plan
-            invocation_state["trusted_products"] = routine_state["trusted_products"]
-            assert StepAnalysisResult.model_validate(invocation_state["step_analysis_data"]) == plan
-            assert invocation_state["product_service"] is orchestrator.product_service
-            results = {}
-            # Finish chains in reverse plan order to check deterministic assembly.
-            for step in reversed(plan.routine_steps):
-                for prefix in ("ingredients", "products"):
-                    name = f"{prefix}_{step.step_name}"
-                    yield {"type": "multiagent_node_start", "node_id": name}
-                    output = routine_state[f"{prefix}_outputs"][name]
-                    results[name] = node_result(output)
-                    yield {"type": "multiagent_node_stop", "node_id": name, "node_result": results[name]}
-            yield {"type": "multiagent_node_start", "node_id": "compile"}
-            compiled = await CompileNode().invoke_async(task, invocation_state)
-            results["compile"] = NodeResult(result=compiled, status=Status.COMPLETED)
-            yield {"type": "multiagent_node_stop", "node_id": "compile", "node_result": results["compile"]}
-            yield {"type": "multiagent_result", "result": MultiAgentResult(status=Status.COMPLETED, results=results)}
+    def ingredient_agent(category):
+        return SimpleNamespace(invoke_async=AsyncMock(return_value=node_result(
+            routine_state["ingredients_outputs"][f"ingredients_{category}"],
+        ).result))
+
+    def product_agent(category):
+        # Tests may alter this stand-in model output; the server ignores all facts.
+        selected = routine_state["products_outputs"][f"products_{category}"].top_recommendations
+        output = ProductExplanations(step_name=category, products=[{
+            "product_id": item.product_id, "why_for_you": item.why_for_you, "usage_tip": item.usage_tip,
+        } for item in selected])
+        return SimpleNamespace(invoke_async=AsyncMock(return_value=node_result(output).result))
 
     monkeypatch.setattr(orchestrator, "_build_diagnose_graph", lambda: DiagnoseGraph())
-    monkeypatch.setattr(orchestrator, "_build_prescribe_graph", lambda steps: PrescribeGraph())
+    monkeypatch.setattr(orchestration, "create_ingredients_agent", ingredient_agent)
+    monkeypatch.setattr(orchestration, "create_product_agent", product_agent)
     monkeypatch.setattr(entrypoint, "Orchestrator", lambda: orchestrator)
     return orchestrator
 
@@ -99,6 +117,42 @@ def test_request_to_final_wire_result(pipeline, request_payload):
     assert json.loads(json.dumps(events)) == events
 
 
+@pytest.mark.parametrize("empty_categories", [("Sunscreen",), ("Cleanser", "Sunscreen")])
+def test_v2_mixed_and_all_no_match_finish_through_the_real_graph(pipeline, request_payload, empty_categories):
+    original = pipeline.product_service.client.search.side_effect
+    def search(**kwargs):
+        category = next(item["term"]["category_id"] for item in kwargs["body"]["query"]["bool"]["filter"]
+                        if "category_id" in item.get("term", {}))
+        return engine_response([]) if category in empty_categories else original(**kwargs)
+    pipeline.product_service.client.search.side_effect = search
+    events = asyncio.run(collect({**request_payload, "api_version": 2, "preferences": {}}))
+    assert not [event for event in events if event["type"] == "error"]
+    stop = next(event for event in events if event.get("node_id") == "compile" and event["type"] == "multiagent_node_stop")
+    routine = json.loads(stop["node_result"]["result"]["results"]["compile"]["result"]["message"]["content"][0]["text"])
+    assert routine["api_version"] == 2
+    for step in routine["routine_steps"]:
+        assert step["recommendation_status"] == ("no_match" if step["step_name"] in empty_categories else "matched")
+        if step["step_name"] in empty_categories:
+            assert step["products"] == [] and step["no_match_reason"] == "no_matching_products"
+    assert events[-1]["type"] == "multiagent_result"
+
+
+def test_v1_no_match_returns_a_terminal_domain_error(pipeline, request_payload):
+    pipeline.product_service.client.search.side_effect = lambda **kwargs: engine_response([])
+    events = asyncio.run(collect(request_payload))
+    assert events[-1]["type"] == "error" and events[-1]["code"] == "NO_MATCHING_PRODUCTS"
+    assert not any(event.get("node_id") == "compile" and "node_result" in event for event in events)
+
+
+def test_missing_mandatory_category_stops_before_any_product_query(pipeline, request_payload):
+    pipeline.product_service.metadata.configuration.return_value = configuration(categories=("Cleanser", "Sunscreen", "Serum"))
+    events = asyncio.run(collect({**request_payload, "api_version": 2, "preferences": {
+        "must_have_by_category": [{"category_id": "Serum", "ingredient_ids": ["ing-a"]}],
+    }}))
+    assert events[-1]["code"] == "INVALID_PREFERENCES"
+    pipeline.product_service.client.search.assert_not_called()
+
+
 def test_untrusted_product_fields_are_replaced_before_any_public_event(pipeline, request_payload, routine_state):
     for output in routine_state["products_outputs"].values():
         for product in output.top_recommendations:
@@ -112,12 +166,47 @@ def test_untrusted_product_fields_are_replaced_before_any_public_event(pipeline,
     assert "/products/example.jpg" in wire
 
 
-def test_unknown_product_id_never_reaches_public_node_output(pipeline, request_payload, routine_state):
+def test_unknown_model_product_id_is_discarded_before_public_output(pipeline, request_payload, routine_state):
     routine_state["products_outputs"]["products_Sunscreen"].top_recommendations[0].product_id = "fabricated-id"
     events = asyncio.run(collect(request_payload))
-    assert events[-1]["code"] == "INVALID_RESPONSE"
+    assert validate_events(events) == []
     assert "fabricated-id" not in json.dumps(events)
-    assert not any(event.get("node_id") == "compile" for event in events)
+    assert any(event.get("node_id") == "compile" for event in events)
+
+
+def test_explanation_provider_failure_keeps_the_approved_products(pipeline, request_payload, monkeypatch):
+    monkeypatch.setattr(orchestration, "create_product_agent", lambda category: SimpleNamespace(
+        invoke_async=AsyncMock(side_effect=RuntimeError("private provider error")),
+    ))
+    events = asyncio.run(collect(request_payload))
+    assert validate_events(events) == []
+    assert "private provider error" not in json.dumps(events)
+    assert "/products/example.jpg" in json.dumps(events)
+
+
+def test_explanation_timeout_cancels_the_call_and_completes_with_factual_text(pipeline, request_payload, monkeypatch):
+    import agents.recommendation_nodes as nodes
+    monkeypatch.setattr(nodes, "EXPLANATION_DEADLINE_SECONDS", 0.01)
+    cancelled = []
+    async def slow(*args, **kwargs):
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.append(True)
+    monkeypatch.setattr(orchestration, "create_product_agent", lambda category: SimpleNamespace(invoke_async=slow))
+    events = asyncio.run(collect(request_payload))
+    assert cancelled == [True, True]
+    assert validate_events(events) == []
+    assert "/products/example.jpg" in json.dumps(events)
+
+
+def test_explanation_guardrail_intervention_remains_terminal(pipeline, request_payload, monkeypatch):
+    monkeypatch.setattr(orchestration, "create_product_agent", lambda category: SimpleNamespace(
+        invoke_async=AsyncMock(return_value=SimpleNamespace(stop_reason="guardrail_intervened")),
+    ))
+    events = asyncio.run(collect(request_payload))
+    assert events[-1]["type"] == "error" and events[-1]["code"] == "GUARDRAIL_BLOCKED"
+    assert not any(event.get("node_id") == "compile" and "node_result" in event for event in events)
 
 
 def test_agentcore_http_adapter_ping_stream_and_application_error(pipeline, request_payload):
@@ -150,7 +239,7 @@ def test_agentcore_http_adapter_rejects_invalid_json_before_pipeline(pipeline):
             "/invocations", content="not-json", headers={"Content-Type": "application/json"},
         )
         assert response.status_code == 400
-    pipeline.product_service.has_products.assert_not_called()
+    pipeline.product_service.metadata.configuration.assert_not_called()
 
 
 @pytest.mark.parametrize("payload", [
@@ -195,8 +284,8 @@ def test_missing_compile_cannot_end_as_success(monkeypatch, request_payload):
     assert asyncio.run(collect(request_payload))[-1]["type"] == "error"
 
 
-def test_empty_catalog_stops_before_model_graphs(pipeline, request_payload):
-    pipeline.product_service.has_products.return_value = False
+def test_unhealthy_catalog_stops_before_model_graphs(pipeline, request_payload):
+    pipeline.product_service.metadata.readiness.side_effect = lambda *args: readiness(healthy=False, checked_at=time.time())
     events = asyncio.run(collect(request_payload))
     assert [event["type"] for event in events] == ["error"]
     assert events[0]["code"] == "SERVICE_UNAVAILABLE"
@@ -214,6 +303,7 @@ def test_compile_gate_requires_every_successful_product():
 
 def test_unknown_catalog_step_is_rejected_before_building_graph(routine_state):
     orchestrator = Orchestrator.__new__(Orchestrator)
+    orchestrator.product_service = SimpleNamespace(config=configuration())
     plan = StepAnalysisResult.model_validate(routine_state["step_analysis_data"])
     plan.routine_steps[0].step_name = "Not a catalog category"
     with pytest.raises(ValueError, match="(?i)(category|catalog|unknown|unsupported)"):

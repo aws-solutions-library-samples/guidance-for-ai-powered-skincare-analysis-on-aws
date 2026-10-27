@@ -12,14 +12,13 @@ from config import get_fast_model, load_prompt
 
 from .models import StepAnalysisResult
 
-def create_step_analysis_agent() -> Agent:
+def create_step_analysis_agent(categories: tuple[str, ...] | None = None) -> Agent:
     """Create a step analysis agent for use as a graph node.
 
     Returns:
         Agent configured with StepAnalysisResult structured output, no tools.
     """
-    catalog = load_catalog()
-    categories_block = "\n".join(f"- {cat}" for cat in catalog.categories)
+    categories_block = "\n".join(f"- {cat}" for cat in (categories or load_catalog().categories))
 
     return Agent(
         model=get_fast_model(),

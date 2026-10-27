@@ -1,16 +1,10 @@
-"""Product recommendation agent factory for the graph pipeline.
-
-Creates one Agent per skincare step. Each agent uses
-find_products_for_step to query DynamoDB and receives ingredients
-output as input text from graph dependency propagation.
-"""
+"""Explain server-selected products without search tools or catalog authority."""
 
 from strands import Agent
 
 from config import get_fast_model, load_prompt
 
-from .models import ProductAnalysisOutput
-from .tools import find_products_for_step
+from .models import ProductExplanations
 
 def create_product_agent(step_name: str) -> Agent:
     """Create a product recommendation agent for a specific skincare step.
@@ -30,8 +24,8 @@ def create_product_agent(step_name: str) -> Agent:
     return Agent(
         model=get_fast_model(),
         system_prompt=system_prompt,
-        tools=[find_products_for_step],
+        tools=[],
         callback_handler=None,
         name=f"products_{step_name}",
-        structured_output_model=ProductAnalysisOutput,
+        structured_output_model=ProductExplanations,
     )

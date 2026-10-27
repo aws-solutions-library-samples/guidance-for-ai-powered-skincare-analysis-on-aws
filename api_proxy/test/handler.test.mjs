@@ -147,3 +147,42 @@ test('an application-level SSE failure finishes normally and releases the lease'
   assert.equal(result.calls.release.length, 1);
   assert.equal(JSON.parse(result.body.slice(6)).code, 'INVALID_INPUT');
 });
+
+test('v2 constraints survive the verified proxy without client-controlled search context', async () => {
+  const input = event();
+  input.body = JSON.stringify({ ...JSON.parse(input.body), api_version: 2, preferences: {
+    excluded_ingredient_ids: ['b'], must_have_by_category: [{ category_id: 'Serum', ingredient_ids: ['c'] }],
+  } });
+  const result = await run(input);
+  const forwarded = JSON.parse(result.calls.invoke[0].payload);
+  assert.equal(forwarded.api_version, 2);
+  assert.deepEqual(forwarded.preferences.must_have_by_category, [{ category_id: 'Serum', ingredient_ids: ['c'] }]);
+  const invalid = event();
+  invalid.body = JSON.stringify({ ...JSON.parse(input.body), preferences: { index_generation: 'attacker' } });
+  const denied = await run(invalid);
+  assert.equal(JSON.parse(denied.body).code, 'INVALID_PREFERENCES');
+  assert.equal(denied.calls.acquire.length + denied.calls.invoke.length, 0);
+});
+
+test('ingredient lookup uses verified identity and its own quota without invoking the model', async () => {
+  const input = event(); input.resource = '/ingredients/lookup'; input.body = '{}';
+  const acquired = [], released = [];
+  const result = await run(input, {
+    lookup: async () => ({ categories: ['Cleanser', 'Serum'] }),
+    lookupLimits: {
+      acquire: async identity => { acquired.push(identity); return 'lookup-lease'; },
+      release: async lease => released.push(lease),
+    },
+  });
+  assert.equal(result.metadata.headers['Content-Type'], 'application/json');
+  assert.deepEqual(acquired, [`${config.issuer}\0user-one\0ingredient-lookup`]);
+  assert.deepEqual(released, ['lookup-lease']);
+  assert.equal(result.calls.invoke.length + result.calls.acquire.length, 0);
+});
+
+test('v1 keeps its smaller envelope budget while v2 allows bounded preference metadata', async () => {
+  const legacy = event(); legacy.body = `${' '.repeat(5000)}${legacy.body}`;
+  assert.equal(JSON.parse((await run(legacy)).body).code, 'REQUEST_TOO_LARGE');
+  const v2 = event(); v2.body = `${' '.repeat(5000)}${JSON.stringify({ ...JSON.parse(v2.body), api_version: 2 })}`;
+  assert.equal((await run(v2)).metadata.statusCode, 200);
+});

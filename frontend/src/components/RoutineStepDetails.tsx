@@ -39,17 +39,22 @@ export function RoutineStepDetails({ step }: { step: CompiledStep }) {
           <h3 className="text-xl font-semibold text-[#2D3436] mb-4 flex items-center gap-2">
             <ShoppingBag size={20} className="text-[#B76E79]" />Recommended Products ({step.products.length})
           </h3>
-          {step.products.length === 0 ? <p className="text-gray-500">No matching products were found for this step.</p> : (
+          {step.products.length === 0 ? <p className="text-gray-600">{step.no_match_reason === 'catalog_changed'
+            ? 'The catalog changed while this routine was being prepared. Try again for current products.'
+            : 'No products matched the selected ingredients and applied constraints for this step.'}</p> : (
             <div className="space-y-4">
               {step.products.map((product, index) => (
-                <article key={`${product.name}-${index}`} className="bg-gray-50 rounded-2xl overflow-hidden">
+                <article key={product.product_id ?? `${product.name}-${index}`} className="bg-gray-50 rounded-2xl overflow-hidden">
                   <ProductImage src={product.image_url} name={product.name} stepName={step.step_name} />
                   <div className="p-4">
-                    {product.match_score && (
+                    {product.matched_count !== undefined && product.preferred_count !== undefined ? (
+                      <p className="text-xs text-[#8B9D83] mb-2">{product.matched_count} of {product.preferred_count} selected ingredients matched exactly</p>
+                    ) : product.match_score && (
                       <p className="text-xs text-[#8B9D83] mb-2">Ingredient match: {product.match_score} · {product.matched_ingredients.length} matching ingredients</p>
                     )}
                     <h4 className="font-semibold text-gray-900 mb-2">{product.name}</h4>
                     <p className="text-xl font-bold text-[#B76E79] mb-3">{product.price}</p>
+                    {product.availability && <p className="text-xs text-gray-500 mb-3">{product.availability === 'unknown' ? 'Availability not confirmed' : product.availability === 'available' ? 'Listed as available' : 'Listed as unavailable'}</p>}
                     {product.why_for_you && <p className="bg-[#A8E6CF]/20 rounded-lg p-3 mb-2 text-sm text-gray-700"><strong>Why this works for you:</strong> {product.why_for_you}</p>}
                     {product.usage_tip && <p className="bg-blue-50 rounded-lg p-3 mb-2 text-sm text-gray-700"><strong>Usage tip:</strong> {product.usage_tip}</p>}
                     {product.matched_ingredients.length > 0 && (

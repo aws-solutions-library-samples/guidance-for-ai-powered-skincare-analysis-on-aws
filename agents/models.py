@@ -3,6 +3,7 @@
 from typing import Literal, Self
 
 from pydantic import BaseModel, Field, model_validator
+from .search.contracts import Preferences
 
 
 class SkinMetrics(BaseModel):
@@ -111,7 +112,8 @@ class StepAnalysisResult(BaseModel):
 class IngredientDetail(BaseModel):
     """A single ingredient recommendation with personalized context."""
 
-    name: str = Field(description="Exact ingredient name from database")
+    ingredient_id: str = Field(default="", max_length=128, description="Canonical ingredient ID returned by an ingredient tool")
+    name: str = Field(description="Display name of that exact ingredient identity")
     benefit: str = Field(description="Primary benefit/function")
     why_for_you: str = Field(description="Personalized explanation for this user")
     usage: str = Field(description="Concentration, frequency, and usage notes")
@@ -121,7 +123,7 @@ class IngredientsAnalysisOutput(BaseModel):
     """Structured output from an ingredients analysis agent node."""
 
     step_name: str
-    key_ingredients: list[IngredientDetail] = Field(min_length=1)
+    key_ingredients: list[IngredientDetail] = Field(min_length=1, max_length=5)
     analysis_notes: str = Field(
         description="Why these ingredients work together for this user"
     )
@@ -139,6 +141,13 @@ class ProductDetail(BaseModel):
         description="Exact image URL from the database tool results. MUST be copied verbatim.",
     )
     matched_ingredients: list[str] = Field(default_factory=list)
+    matched_ingredient_ids: list[str] = Field(default_factory=list)
+    matched_must_have_ingredient_ids: list[str] = Field(default_factory=list)
+    matched_count: int = Field(default=0, ge=0, le=5)
+    preferred_count: int = Field(default=0, ge=0, le=5)
+    availability: Literal["available", "unavailable", "unknown"] = "unknown"
+    price_minor: int | None = Field(default=None, ge=0)
+    currency: str | None = None
     why_for_you: str = Field(description="Personalized product recommendation")
     usage_tip: str = Field(description="Usage tip for this user's skin type")
 
@@ -147,7 +156,28 @@ class ProductAnalysisOutput(BaseModel):
     """Structured output from a product recommendation agent node."""
 
     step_name: str
-    top_recommendations: list[ProductDetail] = Field(min_length=1, max_length=3)
+    status: Literal["matched", "no_match"] = "matched"
+    reason: Literal["no_matching_products", "catalog_changed"] | None = None
+    top_recommendations: list[ProductDetail] = Field(max_length=3)
+
+    @model_validator(mode="after")
+    def valid_outcome(self) -> Self:
+        if self.status == "matched" and (not self.top_recommendations or self.reason):
+            raise ValueError("Matched product output needs products and no reason")
+        if self.status == "no_match" and (self.top_recommendations or not self.reason):
+            raise ValueError("No-match output needs an explicit reason and no products")
+        return self
+
+
+class ProductExplanation(BaseModel):
+    product_id: str = Field(min_length=1, max_length=128)
+    why_for_you: str = Field(max_length=1500)
+    usage_tip: str = Field(max_length=1000)
+
+
+class ProductExplanations(BaseModel):
+    step_name: str
+    products: list[ProductExplanation] = Field(min_length=1, max_length=3)
 
 
 class CompiledStep(BaseModel):
@@ -159,6 +189,8 @@ class CompiledStep(BaseModel):
     why_for_you: str
     ingredients: list[IngredientDetail]
     products: list[ProductDetail]
+    recommendation_status: Literal["matched", "no_match"] = "matched"
+    no_match_reason: Literal["no_matching_products", "catalog_changed"] | None = None
 
 
 class CompiledRoutine(BaseModel):
@@ -166,3 +198,5 @@ class CompiledRoutine(BaseModel):
 
     user_profile: UserProfile
     routine_steps: list[CompiledStep]
+    api_version: Literal[1, 2] = 1
+    applied_preferences: Preferences = Field(default_factory=Preferences)

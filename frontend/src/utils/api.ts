@@ -1,6 +1,6 @@
-import type { AnalysisUpdate, CompiledRoutine } from '../types';
+import type { AnalysisUpdate, CompiledRoutine, IngredientPreferences, IngredientLookupResult } from '../types';
 import { getIdToken } from './auth';
-import { decodeJson, object, parseIngredients, parsePlan, parseProducts, parseRoutine, parseSkinProfile } from './analysisData';
+import { decodeJson, object, parseIngredients, parsePlan, parseProducts, parseRoutine, parseSkinProfile, recommendationOutcome } from './analysisData';
 import { AnalysisError, httpError, serverError } from './analysisErrors';
 
 function ensureSuccess(value: Record<string, unknown>) {
@@ -20,9 +20,10 @@ export class ApiService {
     jobId: string,
     onUpdate: (update: AnalysisUpdate) => void,
     signal?: AbortSignal,
+    preferences?: IngredientPreferences,
   ): Promise<CompiledRoutine> {
     try {
-      return await this.readAnalysis(images, jobId, onUpdate, signal);
+      return await this.readAnalysis(images, jobId, onUpdate, signal, preferences);
     } catch (error) {
       signal?.throwIfAborted();
       if (error instanceof AnalysisError) throw error;
@@ -32,6 +33,7 @@ export class ApiService {
 
   private async readAnalysis(
     images: string[], jobId: string, onUpdate: (update: AnalysisUpdate) => void, signal?: AbortSignal,
+    preferences?: IngredientPreferences,
   ): Promise<CompiledRoutine> {
     let idToken: string | null;
     try {
@@ -48,7 +50,7 @@ export class ApiService {
       response = await fetch(`${this.baseUrl}/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
-        body: JSON.stringify({ job_id: jobId, images }),
+        body: JSON.stringify({ job_id: jobId, images, ...(preferences !== undefined ? { api_version: 2, preferences } : {}) }),
         signal,
       });
     } catch {
@@ -58,9 +60,9 @@ export class ApiService {
     if (!response.ok) {
       // Only these documented proxy codes refine HTTP 429; arbitrary server
       // messages and unrelated provider JSON remain hidden.
-      if (response.status === 429 && response.headers?.get('content-type')?.includes('application/json')) {
+      if ([400, 429].includes(response.status) && response.headers?.get('content-type')?.includes('application/json')) {
         const body = await response.json().catch(() => null);
-        if (body && ['USER_RATE_LIMITED', 'ANALYSIS_IN_PROGRESS'].includes(body.code)) {
+        if (body && ['USER_RATE_LIMITED', 'ANALYSIS_IN_PROGRESS', 'INVALID_PREFERENCES'].includes(body.code)) {
           throw serverError(body, jobId);
         }
       }
@@ -117,7 +119,9 @@ export class ApiService {
         const data = object(output);
         const stepName = node.slice('products_'.length);
         if (data.step_name !== stepName) throw new Error('Analysis returned products for the wrong step.');
-        onUpdate({ type: 'products', stepName, products: parseProducts(data.top_recommendations) });
+        const products = parseProducts(data.top_recommendations, preferences !== undefined);
+        const outcome = data.status !== undefined ? recommendationOutcome(data.status, data.reason, products) : undefined;
+        onUpdate({ type: 'products', stepName, products, ...(outcome ? { recommendationStatus: outcome.recommendation_status } : {}) });
       } else if (node === 'compile') {
         const compiled = object(object(result.results).compile);
         ensureSuccess(compiled);
@@ -164,5 +168,42 @@ export class ApiService {
       await reader.cancel().catch(() => undefined);
       reader.releaseLock();
     }
+  }
+
+  async lookupIngredients(
+    input: { category_id?: string; references?: ({ name: string } | { ingredient_id: string })[] },
+    signal?: AbortSignal,
+  ): Promise<IngredientLookupResult> {
+    const token = await getIdToken().catch(() => null);
+    signal?.throwIfAborted();
+    if (!token) throw new AnalysisError('AUTH_REQUIRED', '');
+    const response = await fetch(`${this.baseUrl}/ingredients/lookup`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(input), signal,
+    });
+    if (!response.ok) throw httpError(response.status, '');
+    const result = object(await response.json());
+    signal?.throwIfAborted();
+    const strings = (value: unknown) => Array.isArray(value) && value.every(item => typeof item === 'string');
+    if (typeof result.taxonomy_version !== 'string' || !strings(result.categories)
+        || !strings(result.supported_markets) || !strings(result.supported_currencies)) throw new AnalysisError('INVALID_RESPONSE', '');
+    const currencies = object(result.currency_minor_units);
+    if (Object.entries(currencies).some(([currency, digits]) => !/^[A-Z]{3}$/.test(currency)
+        || typeof digits !== 'number' || !Number.isInteger(digits) || digits < 0 || digits > 4)
+        || (result.supported_currencies as string[]).some(currency => currencies[currency] === undefined)) {
+      throw new AnalysisError('INVALID_RESPONSE', '');
+    }
+    if (result.ingredients !== undefined && (!Array.isArray(result.ingredients) || result.ingredients.length > 30
+        || result.ingredients.some(value => {
+          const item = object(value);
+          return typeof item.ingredient_id !== 'string' || typeof item.display_name !== 'string';
+        }))) throw new AnalysisError('INVALID_RESPONSE', '');
+    if (input.references && (!Array.isArray(result.results) || result.results.length !== input.references.length
+        || result.results.some(value => {
+          const item = object(value);
+          return !['resolved', 'unresolved', 'ambiguous'].includes(String(item.status))
+            || (item.status === 'resolved' && (typeof item.ingredient_id !== 'string' || typeof item.display_name !== 'string'));
+        }))) throw new AnalysisError('INVALID_RESPONSE', '');
+    return result as unknown as IngredientLookupResult;
   }
 }
