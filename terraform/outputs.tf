@@ -15,7 +15,32 @@ output "api_url" {
 
 output "products_table_name" {
   description = "DynamoDB Products Table (for data migration)"
-  value       = aws_dynamodb_table.products.name
+  value       = aws_dynamodb_table.canonical_products.name
+}
+
+output "catalog_metadata_table_name" {
+  value = aws_dynamodb_table.catalog_metadata.name
+}
+
+output "catalog_outbox_table_name" {
+  value = aws_dynamodb_table.catalog_outbox.name
+}
+
+output "catalog_admin_function_name" {
+  value = aws_lambda_function.catalog["admin"].function_name
+}
+
+output "catalog_maintenance_function_name" {
+  value = aws_lambda_function.catalog["maintenance"].function_name
+}
+
+output "search_dashboard_name" {
+  value = aws_cloudwatch_dashboard.search.dashboard_name
+}
+
+output "catalog_publisher_policy_arn" {
+  description = "Attach to the trusted supplier feed identity; not attached to application roles"
+  value       = aws_iam_policy.catalog_publisher.arn
 }
 
 output "agentcore_ecr_repo_uri" {

@@ -113,6 +113,7 @@ htmlcov/
 *.tfstate.*
 terraform/.build/
 api_proxy/.build/
+catalog_worker/.build/
 terraform.tfvars
 *.tfvars.json
 !env-*.tfvars

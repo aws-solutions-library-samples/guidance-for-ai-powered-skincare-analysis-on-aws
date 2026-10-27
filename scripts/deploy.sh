@@ -68,6 +68,8 @@ print_success "Account: $AWS_ACCOUNT  Region: $AWS_REGION"
 cd "$PROJECT_ROOT/api_proxy"
 npm ci --omit=dev
 npm run build
+cd "$PROJECT_ROOT"
+uv run --locked python scripts/build-catalog-worker.py
 
 # ──────────────────────────────────────────────
 # 3. Terraform apply (infra + AgentCore + CodeBuild)
@@ -121,6 +123,9 @@ API_URL=$(terraform output -raw api_url)
 FRONTEND_BUCKET=$(terraform output -raw frontend_bucket)
 CF_DISTRIBUTION_ID=$(terraform output -raw cloudfront_distribution_id)
 PRODUCTS_TABLE=$(terraform output -raw products_table_name)
+CATALOG_METADATA_TABLE=$(terraform output -raw catalog_metadata_table_name)
+CATALOG_OUTBOX_TABLE=$(terraform output -raw catalog_outbox_table_name)
+CATALOG_ADMIN_FUNCTION=$(terraform output -raw catalog_admin_function_name)
 AGENTCORE_RUNTIME_ARN=$(terraform output -raw agentcore_runtime_arn)
 COGNITO_USER_POOL_ID=$(terraform output -raw cognito_user_pool_id)
 COGNITO_CLIENT_ID=$(terraform output -raw cognito_user_pool_client_id)
@@ -131,18 +136,13 @@ print_success "AgentCore Runtime: $AGENTCORE_RUNTIME_ARN"
 cd "$PROJECT_ROOT"
 
 # ──────────────────────────────────────────────
-# 4. Migrate products to DynamoDB (if empty)
+# 4. Initialize exact search and publish the demo only into an empty v2 catalog.
 # ──────────────────────────────────────────────
-print_step "5/6  Migrating products to DynamoDB"
-
-ITEM_COUNT=$(aws dynamodb scan --table-name "$PRODUCTS_TABLE" --region "$AWS_REGION" --select COUNT --query 'Count' --output text)
-
-if [ "$ITEM_COUNT" -gt 0 ]; then
-  print_info "Table already has $ITEM_COUNT products — skipping migration"
-else
-  uv run --locked python scripts/migrate_products.py "$PRODUCTS_TABLE"
-  print_success "Products migrated"
-fi
+print_step "5/6  Initializing exact product search"
+uv run --locked python scripts/migrate_products.py "$PRODUCTS_TABLE" \
+  --metadata-table "$CATALOG_METADATA_TABLE" --outbox-table "$CATALOG_OUTBOX_TABLE" \
+  --admin-function "$CATALOG_ADMIN_FUNCTION" --demo-if-empty --wait-ready
+print_success "Canonical catalog and exact search are ready"
 
 # ──────────────────────────────────────────────
 # 5. Build & deploy frontend + CloudFront invalidation

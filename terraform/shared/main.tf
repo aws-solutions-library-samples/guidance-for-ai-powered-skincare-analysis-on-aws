@@ -51,6 +51,12 @@ resource "aws_api_gateway_account" "main" {
   cloudwatch_role_arn = aws_iam_role.apigw_cloudwatch.arn
 }
 
+# Account-wide role required before creating the first VPC OpenSearch domain
+# through its API. Import it into this shared state if the account already has it.
+resource "aws_iam_service_linked_role" "opensearch" {
+  aws_service_name = "opensearchservice.amazonaws.com"
+}
+
 output "apigw_cloudwatch_role_arn" {
   value = aws_iam_role.apigw_cloudwatch.arn
 }

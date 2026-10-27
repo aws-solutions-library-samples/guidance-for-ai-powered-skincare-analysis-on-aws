@@ -52,6 +52,8 @@ setup:
 	@echo "✅ Frontend dependencies installed"
 	@cd api_proxy && npm ci && npm run build
 	@echo "✅ API proxy dependencies installed and packaged"
+	@uv run --locked python scripts/build-catalog-worker.py
+	@echo "✅ Catalog worker packaged"
 
 # ---------------------------------------------------------------------------
 # AWS state resources (one-time)
@@ -126,9 +128,15 @@ test:
 # ---------------------------------------------------------------------------
 .PHONY: migrate-products
 migrate-products:
+	@if [ -z "$(SOURCE_JSONL)" ]; then echo "Usage: make migrate-products SOURCE_JSONL=/path/to/supplier.jsonl"; exit 1; fi
 	@set -e; PRODUCTS_TABLE=$$(cd terraform && terraform output -raw products_table_name); \
+	METADATA_TABLE=$$(cd terraform && terraform output -raw catalog_metadata_table_name); \
+	OUTBOX_TABLE=$$(cd terraform && terraform output -raw catalog_outbox_table_name); \
 	DEPLOYMENT_REGION=$$(cd terraform && terraform output -raw aws_region); \
-	AWS_DEFAULT_REGION="$$DEPLOYMENT_REGION" uv run --locked python scripts/migrate_products.py "$$PRODUCTS_TABLE"
+	AWS_REGION="$$DEPLOYMENT_REGION" AWS_DEFAULT_REGION="$$DEPLOYMENT_REGION" \
+	uv run --locked python scripts/migrate_products.py "$$PRODUCTS_TABLE" \
+	--metadata-table "$$METADATA_TABLE" --outbox-table "$$OUTBOX_TABLE" \
+	--source "$(SOURCE_JSONL)" --wait-ready
 
 # ---------------------------------------------------------------------------
 # Create Cognito user (manual)

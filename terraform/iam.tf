@@ -75,19 +75,31 @@ data "aws_iam_policy_document" "agentcore_permissions" {
     resources = [aws_bedrock_guardrail.smart_beauty.guardrail_arn]
   }
 
-  # DynamoDB access
+  # Runtime has no product scan/query or publication permissions.
   statement {
-    sid    = "DynamoDBAccess"
+    sid    = "CanonicalProductReads"
     effect = "Allow"
     actions = [
-      "dynamodb:GetItem",
-      "dynamodb:Query",
-      "dynamodb:Scan",
+      "dynamodb:BatchGetItem",
     ]
     resources = [
-      aws_dynamodb_table.products.arn,
-      "${aws_dynamodb_table.products.arn}/index/*",
+      aws_dynamodb_table.canonical_products.arn,
     ]
+  }
+  statement {
+    sid       = "BoundedCatalogMetadataReads"
+    actions   = ["dynamodb:BatchGetItem"]
+    resources = [aws_dynamodb_table.catalog_metadata.arn]
+    condition {
+      test     = "ForAllValues:StringLike"
+      variable = "dynamodb:LeadingKeys"
+      values   = ["CONFIG", "READINESS#*", "INGREDIENT#*", "ALIAS#*", "SUMMARY#*"]
+    }
+  }
+  statement {
+    sid       = "ExactProductSearch"
+    actions   = ["es:ESHttpGet", "es:ESHttpPost"]
+    resources = ["${aws_opensearch_domain.products.arn}/products-*/_search"]
   }
 
   # CloudWatch Logs

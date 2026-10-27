@@ -29,17 +29,18 @@ if command == "aws":
         print(os.environ.get("PROFILE_REGION", "eu-west-1"))
     elif args[:2] == ["sts", "get-caller-identity"]:
         print("123456789012")
-    elif args[:2] == ["dynamodb", "scan"]:
-        if os.environ.get("FAIL_SCAN"): sys.exit(7)
-        print(os.environ.get("ITEM_COUNT", "0"))
 elif command == "terraform":
     if args[0] == "apply" and os.environ.get("FAIL_APPLY"): sys.exit(8)
     if args[0] == "output":
         print({"app_url":"https://example.invalid", "api_url":"https://example.invalid/api",
             "frontend_bucket":"test-bucket", "products_table_name":"test-products",
+            "catalog_metadata_table_name":"test-metadata", "catalog_outbox_table_name":"test-outbox",
+            "catalog_admin_function_name":"test-admin",
             "aws_region":"eu-west-1"}.get(args[-1], "test-value"))
 elif command == "npm" and args == ["run", "typecheck"] and os.environ.get("FAIL_TYPES"):
     sys.exit(9)
+elif command == "uv" and "scripts/migrate_products.py" in args and os.environ.get("FAIL_PUBLISH"):
+    sys.exit(7)
 '''
 
 
@@ -96,18 +97,21 @@ def test_deploy_uses_one_region_for_infrastructure_and_migration(project, env_va
     assert "-var-file=env-prod.tfvars" in applies[-1]["args"]
     migration = next(call for call in calls if call["command"] == "uv" and "scripts/migrate_products.py" in call["args"])
     assert migration["region"] == migration["default_region"] == region
-    scan = next(call for call in calls if call["command"] == "aws" and call["args"][:2] == ["dynamodb", "scan"])
-    assert scan["args"][scan["args"].index("--region") + 1] == region
+    assert not any(call["command"] == "aws" and call["args"][:2] == ["dynamodb", "scan"] for call in calls)
+    assert "--demo-if-empty" in migration["args"] and "--wait-ready" in migration["args"]
+    for flag, value in (("--metadata-table", "test-metadata"), ("--outbox-table", "test-outbox"), ("--admin-function", "test-admin")):
+        assert migration["args"][migration["args"].index(flag) + 1] == value
     npm_calls = [call["args"] for call in calls if call["command"] == "npm"]
     assert npm_calls == [["ci", "--omit=dev"], ["run", "build"], ["ci"], ["run", "build"]]
 
 
-@pytest.mark.parametrize("failure", ["FAIL_SCAN", "FAIL_APPLY"])
+@pytest.mark.parametrize("failure", ["FAIL_PUBLISH", "FAIL_APPLY"])
 def test_deploy_does_not_continue_after_cloud_failure(project, failure):
     project[1][failure] = "1"
     result, calls = run_script(project, "deploy.sh", "dev")
     assert result.returncode != 0
-    assert not any("scripts/migrate_products.py" in call["args"] for call in calls)
+    if failure == "FAIL_APPLY":
+        assert not any("scripts/migrate_products.py" in call["args"] for call in calls)
     assert not any(call["command"] == "npm" and call["cwd"].endswith("/frontend") for call in calls)
     assert not any(call["command"] == "aws" and call["args"][:2] == ["s3", "sync"] for call in calls)
 

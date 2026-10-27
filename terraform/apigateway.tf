@@ -133,12 +133,51 @@ resource "aws_api_gateway_deployment" "main" {
       aws_api_gateway_integration.analyze_options,
       aws_api_gateway_method_response.analyze_options_200,
       aws_api_gateway_integration_response.analyze_options_200,
+      aws_api_gateway_resource.ingredients,
+      aws_api_gateway_resource.ingredient_lookup,
+      aws_api_gateway_method.ingredient_lookup,
+      aws_api_gateway_integration.ingredient_lookup,
     ]))
   }
 
   lifecycle {
     create_before_destroy = true
   }
+}
+
+# Same authenticated boundary as analysis; lookup invokes no model.
+resource "aws_api_gateway_resource" "ingredients" {
+  rest_api_id = aws_api_gateway_rest_api.skincare.id
+  parent_id   = aws_api_gateway_rest_api.skincare.root_resource_id
+  path_part   = "ingredients"
+}
+
+resource "aws_api_gateway_resource" "ingredient_lookup" {
+  rest_api_id = aws_api_gateway_rest_api.skincare.id
+  parent_id   = aws_api_gateway_resource.ingredients.id
+  path_part   = "lookup"
+}
+
+resource "aws_api_gateway_method" "ingredient_lookup" {
+  rest_api_id          = aws_api_gateway_rest_api.skincare.id
+  resource_id          = aws_api_gateway_resource.ingredient_lookup.id
+  http_method          = "POST"
+  authorization        = "COGNITO_USER_POOLS"
+  authorizer_id        = aws_api_gateway_authorizer.cognito.id
+  request_validator_id = aws_api_gateway_request_validator.body.id
+  request_parameters   = { "method.request.header.Authorization" = true }
+}
+
+resource "aws_api_gateway_integration" "ingredient_lookup" {
+  rest_api_id             = aws_api_gateway_rest_api.skincare.id
+  resource_id             = aws_api_gateway_resource.ingredient_lookup.id
+  http_method             = aws_api_gateway_method.ingredient_lookup.http_method
+  integration_http_method = "POST"
+  type                    = "AWS_PROXY"
+  uri                     = aws_lambda_function.api_proxy.response_streaming_invoke_arn
+  response_transfer_mode  = "STREAM"
+  timeout_milliseconds    = 10000
+  depends_on              = [aws_lambda_permission.ingredient_lookup_api]
 }
 
 resource "aws_cloudwatch_log_group" "api_access_logs" {
