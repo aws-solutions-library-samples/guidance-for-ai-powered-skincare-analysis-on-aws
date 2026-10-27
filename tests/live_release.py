@@ -1,6 +1,6 @@
 """Explicit AWS release checks, excluded from default pytest discovery.
 
-See docs/release-validation.md. Creates only a fresh test user/client and that
+See README.md and --help. Creates only a fresh test user/client and that
 user's limit records; never deploys infrastructure or uses existing identities.
 """
 

@@ -31,8 +31,7 @@ def main():
     outputs = set()
     for path in (ROOT / "terraform").glob("*.tf"):
         outputs.update(re.findall(r'output\s+"([^"]+)"', path.read_text()))
-    paths = [ROOT / "README.md", ROOT / "tests/README.md", *(ROOT / "docs").rglob("*.md"),
-             ROOT / "experiments/search/README.md"]
+    paths = sorted([*ROOT.glob("*.md"), *(ROOT / "docs").rglob("*.md")])
     for path in paths:
         if not path.exists():
             continue

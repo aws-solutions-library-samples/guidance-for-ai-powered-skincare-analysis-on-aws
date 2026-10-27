@@ -70,7 +70,7 @@ def test_execute_rejects_missing_provenance_before_cloud_access(tmp_path, monkey
 
 
 @pytest.mark.parametrize("change", [
-    "source", "archive", "saved_plan", "new_terraform_file", "missing_file", None,
+    "source", "documentation", "archive", "saved_plan", "new_terraform_file", "missing_file", None,
 ])
 def test_execute_checks_frozen_inputs_before_cloud_access(tmp_path, monkeypatch, change):
     root, directory = tmp_path / "source", tmp_path / "run"
@@ -88,6 +88,7 @@ def test_execute_checks_frozen_inputs_before_cloud_access(tmp_path, monkeypatch,
         "catalog_worker/handler.py", "catalog_worker/.build/function.zip",
         "api_proxy/.build/function.zip",
         "terraform/main.tf", "terraform/qualification.tfplan", "terraform/prerequisite.tfplan",
+        "docs/architecture.md",
     ):
         path = directory / relative
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -103,6 +104,8 @@ def test_execute_checks_frozen_inputs_before_cloud_access(tmp_path, monkeypatch,
     (directory / "report.json").write_text(json.dumps(report))
     if change == "source":
         (root / "agents/search/clients.py").write_bytes(b"changed code")
+    elif change == "documentation":
+        (directory / "docs/architecture.md").write_bytes(b"changed documentation")
     elif change == "archive":
         (directory / "probe.zip").write_bytes(b"changed archive")
     elif change == "saved_plan":

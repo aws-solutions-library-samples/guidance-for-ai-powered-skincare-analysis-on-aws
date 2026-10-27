@@ -1,5 +1,5 @@
 # Private exact-ingredient search. Engine is pinned to a managed-service release.
-# Size and throughput remain subject to the qualification plan in docs/search-spec/.
+# Size and throughput require workload-specific capacity testing.
 locals {
   search_config      = jsondecode(file("${path.module}/../data/search-config.json"))
   search_domain_name = "${local.prefix}-search"
