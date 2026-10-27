@@ -88,7 +88,7 @@ def fingerprints(root, folders, files):
 
 def source_fingerprints(root):
     return fingerprints(
-        root, ("agents", "prompts", "data", "docs/search-spec"),
+        root, ("agents", "prompts", "data", "docs"),
         ("catalog_worker/handler.py", "tests/aws_search_qualification.py",
          "tests/aws_search_probe.py", "tests/search_fixtures.py",
          "scripts/build-catalog-worker.py", "catalog.py", "config.py",
@@ -98,7 +98,7 @@ def source_fingerprints(root):
 
 def artifact_fingerprints(directory):
     return fingerprints(
-        directory, ("agents", "prompts", "data", "terraform", "tests", "spec"),
+        directory, ("agents", "prompts", "data", "terraform", "tests", "docs"),
         (".dockerignore", "Dockerfile.agentcore", "agentcore_entrypoint.py", "catalog.py",
          "config.py", "pyproject.toml", "uv.lock", "probe.zip", "plan.json",
          "catalog_worker/handler.py", "catalog_worker/.build/function.zip",
@@ -309,7 +309,7 @@ def prepare(directory, *, profile, account, reuse_roles_from=None):
     for name in (".dockerignore", "Dockerfile.agentcore", "agentcore_entrypoint.py",
                  "catalog.py", "config.py", "pyproject.toml", "uv.lock"):
         shutil.copyfile(ROOT / name, directory / name)
-    shutil.copytree(ROOT / "docs/search-spec", directory / "spec")
+    shutil.copytree(ROOT / "docs", directory / "docs")
     (directory / "tests").mkdir()
     for name in ("aws_search_qualification.py", "aws_search_probe.py", "search_fixtures.py"):
         shutil.copyfile(ROOT / "tests" / name, directory / "tests" / name)

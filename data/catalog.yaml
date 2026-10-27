@@ -1,7 +1,7 @@
 # Catalog Configuration
 # CSV column mapping for the bundled fictional catalog.
 # Search configuration and reviewed identity registry are separate versioned
-# files: search-config.json and ingredient-registry.json. See docs/search-spec/.
+# files: search-config.json and ingredient-registry.json. See docs/architecture.md.
 # Customer feeds must supply stable product_id and ordered source_revision.
 
 # Product categories available in your catalog.
