@@ -1,163 +1,109 @@
-# Scalable product recommendation search
+# Exact ingredient product search specification
 
-**Status:** proposed specification, ready for implementation planning.
+**Version 2.0 · 2026-10-26 · Implementation in progress**
 
-**Date:** 2026-10-23.
+Implement indexed exact ingredient matching with hard eligibility filters and
+ranking by the number of distinct preferred ingredients present. OpenSearch is
+the selected search implementation; DynamoDB remains the authoritative catalog.
+This package replaces the earlier hybrid-search proposal.
 
-**Scope:** recommendations from a skin profile, from thousands to millions of products.
+The ingredient agent decides which ingredients to prefer for a step. Search
+finds products containing those exact identities. The product agent explains the
+server's selected products. Each responsibility has a separate contract.
 
-**Agreed planning assumption:** 20 incoming routines/second.
+## Product behavior
 
-**Planning team:** two experienced engineers, with part-time search, operations,
-and product/domain review support. These are estimates, not delivery commitments.
+For preferred ingredients A, B and C, and an explicit must-have A:
 
-## Decision and effort
+| Product ingredients | Result |
+|---|---|
+| A, B, C | Eligible; score 3 |
+| A, B | Eligible; score 2 |
+| A only | Eligible; score 1 |
+| B, C | Ineligible: missing must-have A |
+| A, B, C plus an explicitly excluded ingredient | Ineligible |
 
-Build an indexed search layer that retrieves a bounded candidate pool. Keep the
-canonical product store and server-side product binding. Ship a filtered lexical
-baseline first; qualify semantic retrieval and reranking through the same tests.
-Promote additional ranking stages only when their quality benefit justifies their
-latency and cost.
+Return up to three products in descending match-count order, with stable product
+ID ties. Return fewer when fewer qualify. Show “Matches 2 of 3 selected
+ingredients”; this is ingredient coverage, not an effectiveness or suitability
+probability.
 
-This is a moderate application change and a substantial data/evaluation/operations
-change. Replacing the score function alone does not meet the scale requirement.
+Explicit must-haves are scoped to a named category/step. Explicit exclusions
+apply to every product in the routine. A must-have for a serum does not become
+a requirement for the cleanser. The server preserves these constraints throughout
+planning and finalization.
 
-| Deliverable | Cumulative engineering effort | Indicative elapsed time with two engineers | What the milestone establishes |
-|---|---:|---:|---|
-| Indexed MVP | 20–30 person-days | 3–4 weeks | Working bounded lexical search, initial synchronization, preferences and explicit no-match handling in a test environment |
-| Customer-scale validation candidate | 45–65 person-days | 6–9 weeks | Hybrid/reranking experiments, representative index, independent evaluation pipeline, capacity/resilience evidence |
-| Production release | **71–108 person-days** | **9–13 weeks** | Operational ingestion, release gates, rollback, monitoring, complete application integration and controlled rollout |
+The matching path contains no embeddings, product-description scoring, substring
+substitution, position weighting, ingredient-family substitution, or model
+reranking. A reviewed alias may resolve two names for the same ingredient to the
+same ID. A related ingredient remains a different ID.
 
-Milestones overlap and are cumulative; do not add their estimates together.
-The production range includes approximately 20% engineering contingency. It assumes
-one customer deployment, one region, an available catalog feed, and existing
-photo-analysis behavior. Data cleanup, unfamiliar infrastructure, restrictive
-model quotas, and waiting for domain judgments can extend elapsed time.
+## Scope and boundaries
 
-Domain review is additional work, potentially a critical path. A planning example
-of 400 profiles × three steps × 20 pooled products yields 24,000 judgments.
-At 45 seconds per judgment that is 300 hours; 25% double review adds 75 hours,
-before rubric calibration and adjudication. Budget about **50–65 reviewer-days**
-for that example, distributed across qualified reviewers. A timed pilot determines
-the actual volume and rate. More labels are required if power analysis or judgment
-coverage shows the sample is insufficient.
+| Item | Specification |
+|---|---|
+| Catalog scale | Up to 1,000,000 active products; checkpoints at 1k, 10k and 100k |
+| Traffic | 20 incoming routines/second; six typical and eight maximum steps |
+| Search traffic | 120 typical / 160 maximum logical product searches/second, before retries |
+| Deployment | One catalog/customer deployment in one AWS Region |
+| Search | One exact-count query per step; at most 100 returned candidate IDs |
+| Authoritative reads | Initially 10 candidates; one refill up to the 100-candidate total |
+| Result | Up to three products per step, or an explicit no-match |
+| Data updates | Durable publication, ordered revisions, tombstones and reconciliation |
+| Application | Ingredient tools, selection, binding, compiler, versioned API and browser |
+| Production evidence | Actual deployed search and full-routine load, update/failure tests and cost |
 
-Labeling all six typical steps under the same assumptions doubles this to
-**100–120 reviewer-days** including calibration/adjudication. Pools can exceed
-20 distinct products per step. The delivery plan makes these cost drivers explicit.
+Availability is a declared deployment policy. `catalog` mode permits products
+whose stock is unknown and makes no stock claim. `purchasable` mode requires
+verified stock, market and currency. Unknown facts fail any constraint that
+depends on them. The public research data did not establish purchase availability.
 
-See [delivery plan](delivery.md) for the work breakdown, staffing, dependencies,
-and alternative scope choices.
+The proposed latency, update and cost gates are in
+[acceptance-targets.yaml](acceptance-targets.yaml). They are implementation
+targets; the local benchmark did not pass the production gates.
 
 ## Specification package
 
-| Document | Contents |
+| Document | Purpose |
 |---|---|
-| [Technical specification](technical.md) | Requirements, architecture, product/profile contracts, ingestion, retrieval, ranking, failure semantics, application changes, security and observability |
-| [Testing and evaluation strategy](verification.md) | Test cases, independent relevance judgments, statistical analysis, ANN recall, load/resilience tests, cost measurement and release gates |
-| [Delivery and migration plan](delivery.md) | Person-day estimates, implementation work packages, file impact, milestones, rollout and rollback |
-| [Acceptance targets](acceptance-targets.yaml) | Proposed numerical targets and workload assumptions; source of truth for numbers repeated in the documents |
+| [Technical specification](technical.md) | Data and API contracts, exact algorithm, consistency, ingestion, private access and failure behavior |
+| [Verification strategy](verification.md) | Requirement traceability, exact oracles, integration, deployed capacity and release evidence |
+| [Delivery plan](delivery.md) | Work packages, repository file changes, estimates, migration and rollback |
+| [Acceptance targets](acceptance-targets.yaml) | Machine-readable limits and proposed release thresholds |
+| [Index mapping](examples/index-mapping.json) | Explicit mapping for the selected product-search projection |
+| [Search query](examples/search-query.json) | Concrete exact-count query with mandatory and exclusion filters |
+| [Contract examples](examples/contracts.json) | Preference fragment, internal request and public step outcomes |
 
-The numerical gates are proposed engineering/product targets, not claims about
-measured performance or industry-wide standards. Freeze them at milestone G0
-before judging candidate configurations. The cost ceiling remains a customer
-decision and is a release dependency.
+The exact search path is connected to the application. See
+[implementation status and the completion audit](implementation.md) for executed
+checks and outstanding requirements. The specification's deployment gates have
+not been passed.
 
-## Scale contract
+## Evidence behind the decision
 
-Initial qualification is for **one million active products per customer**, with
-1k, 10k and 100k checkpoints. A 10-million-product run is an extension; success at
-one million does not authorize a claim about ten million.
+The [completed study](decision-evidence.md) provides:
 
-At 20 routines/second, six steps per routine, and the starting search configuration:
+- 6,000 generated requests over public product records; the indexed implementations
+  reproduced every ordered exhaustive-reference top-100 list.
+- Filtered exact harmonic ranking lost attainable top-three ingredient matches
+  on 1,807 requests, or 30.1%.
+- One million synthetic records; 151,256 measured searches across six local load
+  cells, zero failures or deadline misses, and p95 latency of 16.95–19.84 ms.
 
-| Work item | Nominal rate or bound |
-|---|---:|
-| Logical step searches | 120/second |
-| Lexical plus ANN branches | 240 branch executions/second |
-| Query embeddings without reuse | Up to 120/second |
-| Cross-encoder pairs at 50 candidates per step | 6,000/second |
-| Candidate IDs returned to application | At most 200 per step |
-| Authoritative product hydration | At most 100 distinct products per step |
-| Final user-visible recommendations | At most three products per step |
+This evidence supports the agreed matching objective and a local component
+capacity screen. Customer ingredient identity, planning quality, canonical-store
+reads, AWS capacity and full-routine behavior require their own implementation
+checks. The spec does not reopen the semantic-method comparison.
 
-These counts exclude upstream LLM calls, generated explanations, retries, refresh
-traffic and shadow evaluation. A six-step routine currently has 14 agent nodes
-before compilation; agent nodes are not equivalent to individual model calls.
-Measure actual tool loops and inference token/request rates.
+## Delivery expectation
 
-The same admission rate must also be exercised with the supported eight-step
-maximum: 160 step searches/second and up to 8,000 reranking pairs/second.
-Capacity decisions must include that case.
+Plan **15–22 engineering person-days for an integrated test MVP** and
+**44–65 person-days for the production scope including contingency**. With two
+engineers, the latter is roughly **6–9 elapsed weeks**, subject to feed readiness,
+cloud quotas and rollout observation. These are revised planning estimates,
+not measured delivery velocity. See the [work breakdown](delivery.md).
 
-## What will count as evidence
-
-Release requires all three:
-
-1. **Correctness:** request constraints, canonical product facts, valid no-match
-   handling, consistent synchronization, isolation and fault behavior.
-2. **Recommendation quality:** independently reviewed product and routine judgments
-   from profile-only inputs, with a frozen test set and uncertainty reported.
-3. **Serving performance:** the actual deployed path meets latency, throughput,
-   freshness and cost gates against a representative million-product index.
-
-The existing [local experiments](../../experiments/search/README.md) remain useful
-for regression tests and metric checks. Their 48 fictional products, manually
-supplied ingredient targets, and assistant-authored judgments are not release
-evidence. Unit-test counts and public vendor benchmarks do not replace these gates.
-
-## Principal changes
-
-- Replace per-request DynamoDB category enumeration with an OpenSearch-backed
-  retrieval adapter.
-- Materialize ingredient availability during ingestion; preserve access to rare
-  ingredients without passing a full taxonomy to an LLM.
-- Add explicit, validated user preferences; do not infer budgets or exclusions
-  from photographs.
-- Add `matched` and `no_match` step outcomes across backend, SSE, compiler and UI.
-- Make search ranking deterministic for a fixed configuration; use the product
-  agent to explain server-selected products.
-- Synchronize product updates, deletions, availability and embeddings with version
-  checks, reconciliation and reindex recovery.
-- Preserve bounded authoritative product hydration and server-side binding.
-- Qualify optional ANN and reranking on the full indexed catalog.
-- Add production load generation, judgments, failure injection and release reports.
-
-## Scope boundaries
-
-Included: one customer/region deployment, catalog search, per-product price limits,
-explicit ingredient requirements/exclusions, standard availability and market
-filters, optional semantic retrieval/reranking, routine assembly and the evidence
-needed to release them.
-
-Deferred: a shared multi-tenant SaaS control plane, training a new embedding model,
-learning-to-rank from clicks, a global routine-budget optimizer, checkout,
-inventory reservation, and redesigning the vision model. Clinical suitability
-rules require a reviewed domain policy; this work does not create medical evidence
-from ingredient lists or model explanations.
-
-Search-boundary tests use frozen skin profiles to isolate this change. Full-system
-tests still exercise the existing photo-to-profile path and report its contribution
-to final recommendation errors.
-
-## Outstanding decisions
-
-| Decision | Proposed default | Required by |
-|---|---|---|
-| Peak routine traffic | 20/second, user-approved planning assumption | Already set for planning |
-| Peak product count | 1 million active products | G0; validate customer expectation |
-| Primary region and residency | One supported region matching customer requirements | G0 |
-| Deployment | Private provisioned OpenSearch Service domain for initial reproducible qualification | G0 |
-| Model provider | Managed AWS embedding/reranking interfaces; pin compatible region/model revisions after evaluation | G0/G2 |
-| Canonical customer feed and SKU identity | Stable supplier IDs, explicit revisions and delete semantics | G0 |
-| Cost ceiling | Not yet supplied; measure and agree ceiling per 1,000 completed routines plus monthly fixed cost | Before G3 exit |
-| Relevance rubric and domain reviewers | Customer-approved rubric, independent judgments | Before G2 test-set freeze |
-| Profile/routine completion targets | Proposed in acceptance targets | G0 |
-
-## Official references
-
-The detailed specifications link each relevant design choice to official sources:
-OpenSearch filtering, RRF and aliases; AWS DynamoDB ingestion and AgentCore
-networking; OpenSearch Benchmark; and BEIR/trec_eval evaluation conventions.
-Selected service versions, model availability, quotas and
-provider syntax must be verified again when implementation starts.
+Implementation is underway. Before
+customer release, record the feed's stable IDs and ingredient registry, field
+completeness, availability policy, deployment region/capacity, and cost ceilings.
+Those deployment inputs do not change the selected ranking rule.

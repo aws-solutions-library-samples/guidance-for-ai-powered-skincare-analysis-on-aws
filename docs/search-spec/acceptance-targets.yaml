@@ -1,14 +1,27 @@
-# Proposed acceptance configuration, not an executable benchmark or measured result.
-# Freeze at G0. No unspecified cost ceiling may be interpreted as "unlimited".
-spec_version: "1.0"
-status: proposed
-as_of: "2026-10-23"
+# Proposed implementation/release targets, not measured production results.
+# The exact matching method is decided; freeze deployment-specific targets at G0.
+spec_version: "2.0"
+status: implementation_in_progress
+as_of: "2026-10-27"
+
+method:
+  id: exact_ingredient_count_v1
+  preferred_identity: canonical_exact_id
+  mandatory_semantics: all
+  exclusion_semantics: none_present
+  score: distinct_preferred_ids_present
+  tie_break: product_id_ascending
+  minimum_preferred_matches: 1
+  semantic_retrieval_enabled: false
+  product_description_scoring_enabled: false
+  position_weighting_enabled: false
+  family_substitution_enabled: false
 
 workload:
   active_products: 1000000
   checkpoint_products: [1000, 10000, 100000, 1000000]
-  extension_products: 10000000
   routines_per_second: 20
+  minimum_steps: 2
   typical_steps: 6
   maximum_steps: 8
   typical_step_searches_per_second: 120
@@ -19,99 +32,115 @@ workload:
   update_burst_events_per_second: 1000
   update_burst_duration_minutes: 5
   query_mix:
-    broad_eligibility: 0.25
-    category_only: 0.25
+    broad_additional_eligibility: 0.25
+    category_only_beyond_baseline: 0.25
     eligibility_one_percent: 0.20
     eligibility_point_one_percent: 0.15
     fewer_than_k_eligible: 0.10
     known_no_match: 0.05
   result_cache_hit_rate_for_gating: 0
 
+contracts:
+  product_id_characters_max: 128
+  ingredient_id_characters_max: 128
+  ingredient_lookup_name_characters_max: 256
+  preferred_ingredients_min: 1
+  preferred_ingredients_max: 5
+  planner_preferred_ingredients_typical_min: 3
+  must_have_ingredient_references_total_max: 20
+  must_have_categories_max: 8
+  excluded_ingredient_ids_max: 20
+  additional_v2_non_image_payload_bytes_max: 16384
+  ingredient_summary_entries_max: 30
+  ingredient_lookup_references_per_call_max: 20
+  ingredient_discovery_calls_per_step_max: 3
+  price_minor_max: 9007199254740991
+  supported_eligibility_modes: [catalog, purchasable]
+  deployment_eligibility_mode: catalog
+  require_complete_list_for_exclusions: true
+  require_complete_resolution_for_exclusions: true
+  missing_constrained_facts_fail_eligibility: true
+
 search_bounds:
-  required_ingredient_references_max: 20
-  excluded_ingredient_references_max: 20
-  preferred_ingredients_max: 20
-  rendered_query_characters_max: 2048
-  lexical_candidates: 100
-  ann_candidates: 100
-  union_candidates_max: 200
+  logical_index_queries_per_step: 1
+  candidate_ids_max: 100
+  initial_hydration_products_max: 10
   hydrate_distinct_products_max: 100
-  rerank_candidates: 50
-  final_products_max: 3
   refill_attempts_max: 1
-  dependency_retries_max: 1
-  finalization_retries_per_routine_max: 1
-  routine_retrieval_wave_p99_ms: 1500
+  final_products_per_step_max: 3
+  final_validation_products_per_routine_max: 24
+  concurrent_step_searches_per_routine_max: 8
+  dependency_retries_per_step_max: 1
+  final_validation_retries_per_routine_max: 1
   step_deadline_ms: 1200
-  routine_retrieval_wave_deadline_ms: 1600
+  stage_budget_ms:
+    scheduling_and_readiness: 100
+    index_query: 350
+    hydration_and_refill: 500
+    selection_and_binding: 50
+    shared_retry_reserve: 200
+  routine_hard_deadline_seconds: 120
+
+correctness:
+  fixed_snapshot_ordered_top_100_agreement_required: 1.0
+  fixed_snapshot_ordered_top_3_agreement_required: 1.0
+  returned_scores_equal_exact_counts_required: true
+  known_no_match_correctness_required: 1.0
+  observed_hard_constraint_violations_allowed: 0
+  observed_catalog_fact_violations_allowed: 0
+  observed_cross_request_binding_violations_allowed: 0
+  unprocessed_keys_treated_as_absent_allowed: false
+  partial_search_results_allowed: false
+  runtime_product_scans_allowed: 0
+  runtime_category_enumerations_allowed: 0
+  uncontrolled_search_pagination_allowed: false
 
 performance:
-  step_search_p95_ms: 500
-  step_search_p99_ms: 1000
-  routine_first_product_p95_seconds: 30
+  application_step_search_p95_ms: 500
+  application_step_search_p99_ms: 1000
+  application_search_failed_late_or_rejected_fraction_max: 0.001
+  routine_first_step_outcome_p95_seconds: 30
   routine_complete_p95_seconds: 60
   routine_complete_p99_seconds: 90
+  routine_operational_failure_fraction_max: 0.01
+  valid_routine_completion_fraction_min: 0.99
+  valid_no_match_counts_as_domain_completion: true
   sse_silence_max_seconds: 15
-  service_error_rate_max: 0.001
-  routine_service_failure_rate_max: 0.01
-  valid_completion_rate_min: 0.99
   warmup_minutes_min: 15
   measured_minutes_per_cell_min: 30
   independent_repetitions: 3
   soak_hours: 4
   burst_recovery_minutes_max: 5
-  fallback_fraction_max_steady_state: 0.01
 
 freshness:
-  lexical_update_p95_seconds: 30
-  embedding_update_p95_seconds: 300
-  source_change_age_alarm_seconds: 60
+  canonical_change_search_visibility_p95_seconds: 30
+  unresolved_change_age_alarm_seconds: 60
   ingestion_hard_stale_seconds: 300
-  changed_content_embedding_coverage_min: 0.99
+  readiness_heartbeat_max_age_seconds: 60
+  advisory_ingredient_summary_refresh_target_seconds: 300
+  pending_outbox_events_may_expire: false
+  delivered_history_retention_days_min: 7
   tombstone_retention_days_min: 7
-  rollback_index_retention_days_min: 7
-  source_replay_retention_days_min: 7
+  rollback_generation_retention_days_min: 7
+  retention_must_cover_all_replay_retry_horizons: true
+  retain_identity_high_water_mark_after_tombstone_cleanup: true
   catalog_reconciliation_hours: 24
   full_rebuild_hours_max: 12
-  config_or_index_rollback_minutes_max: 5
+  configuration_or_index_rollback_minutes_max: 5
 
-quality:
-  independent_profiles_dev_initial: 200
-  independent_profiles_test_initial: 200
-  binary_relevance_min_grade: 2
-  ndcg_at_3_macro_min: 0.75
-  ndcg_at_3_critical_slice_min: 0.65
-  answerable_steps_with_good_top_3_result_min: 0.95
-  reviewed_routine_acceptance_min: 0.90
-  candidate_fraction_of_attainable_recall_at_100_macro_min: 0.95
-  candidate_fraction_of_attainable_recall_at_100_critical_slice_min: 0.90
-  ann_exact_neighbor_recall_at_100_macro_min: 0.95
-  ndcg_at_3_gain: linear
-  ranking_noninferiority_margin_absolute: 0.02
-  optional_stage_min_point_lift_ndcg_absolute: 0.02
-  paired_confidence_level: 0.95
-  optional_stage_ci_lower_bound_must_exceed: 0
-  bootstrap_resamples: 10000
-  bootstrap_unit: profile
-  bootstrap_seed: 17
-  new_filter_or_catalog_fact_violations_allowed: 0
-  observed_constraint_violation_rate_required: 0
-  observed_critical_routine_rule_violations_required: 0
-  known_no_match_abstention_min: 0.99
-  answerable_false_abstention_max: 0.02
-  pooled_top_10_judgment_coverage_min: 0.99
-  minimum_critical_slice_independent_profiles: 30
-  explanation_claim_support_rate_min: 0.99
-  blind_double_review_fraction_min: 0.25
-  test_repeated_model_seeds: 3
+product_validation:
+  initial_distinct_profile_preference_cases_min: 100
+  required_scenario_coverage: all
+  registry_and_feed_provenance_review_required: true
+  planner_and_explanation_acceptance_owner_required: true
+  clinical_efficacy_claim_from_matching_tests_allowed: false
 
 operations:
-  shard_partial_results_allowed: false
-  runtime_category_enumerations_allowed: 0
-  source_of_truth_reads_bounded: true
   runtime_index_writes_allowed: false
   anonymous_search_access_allowed: false
-  cross_customer_access_allowed: false
+  cross_catalog_access_allowed: false
+  index_network: private
+  production_replica_and_az_failure_test_required: true
   deployment_strategy: staged_canary
   canary_percentages: [1, 5, 25, 100]
   canary_stage_hours_min: 24
@@ -123,9 +152,14 @@ operations:
 
 cost:
   currency: USD
-  maximum_usd_per_1000_completed_routines: null
+  approved_qualification_spend_usd: 200
+  qualification_profile: null # Supply explicitly; retain account/profile in the private run manifest.
+  qualification_region: "eu-west-1"
+  qualification_budget_approved_at: "2026-10-27"
+  maximum_usd_per_1000_valid_completed_routines: null
   maximum_monthly_fixed_usd: null
   release_requires_customer_cost_ceiling: true
   include_failed_requests_and_retries: true
+  include_discovery_canonical_and_final_reads: true
   include_upstream_agents_and_explanations: true
-  report_indexing_and_rebuild_cost_separately: true
+  report_update_and_rebuild_cost_separately: true

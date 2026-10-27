@@ -23,9 +23,9 @@
 
 ## Overview
 
-This Guidance demonstrates how to build a personalized skincare analysis application using a multi-agent AI architecture on AWS. A user submits up to three skin photos through a secure web interface. Specialized AI agents analyze the photos, plan a routine, and select products from the catalog while the application streams progress to the user.
+This Guidance demonstrates how to build a personalized skincare analysis application using a multi-agent AI architecture on AWS. A user submits up to three skin photos through a secure web interface. Specialized AI agents analyze the photos and plan a routine; server code selects products from the catalog while the application streams progress to the user.
 
-The multi-agent system is orchestrated as a directed graph using the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and runs on Amazon Bedrock AgentCore Runtime. Specialized agents handle skin analysis, routine planning, ingredient selection, and product matching against a DynamoDB-backed catalog. Progress and intermediate results stream to the frontend via Server-Sent Events (SSE).
+The multi-agent system is orchestrated as a directed graph using the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and runs on Amazon Bedrock AgentCore Runtime. Specialized agents handle skin analysis, routine planning, ingredient selection, and explanations. Exact ingredient matching uses a private OpenSearch index, with DynamoDB as the authoritative catalog. Progress and intermediate results stream to the frontend via Server-Sent Events (SSE).
 
 ### How it works
 
@@ -35,80 +35,49 @@ The skin-analysis agent turns the photos into a structured skin profile. The pla
 
 ![Analyze and plan: illustrated facial observations lead to a structured skin profile and an ordered routine plan.](assets/images/analyze-and-plan.png)
 
-**The skin profile and ordered plan carry forward into product selection.**
+**The skin profile, ordered plan and explicit user constraints carry forward into product selection.**
 
 #### 2. Select and assemble
 
-Each planned step runs an ingredient agent followed by a product agent; these step-specific chains run in parallel. Available catalog ingredients inform ingredient selection. The product agent's catalog tool retrieves candidates within the step's category and ranks them by ingredient matches before the agent chooses products and explains its recommendations.
+Each planned step runs an ingredient agent, deterministic product selection, and a product explanation agent. These step-specific chains run in parallel. Bounded catalog discovery informs ingredient selection. Server code ranks exact ingredient counts, enforces explicit must-haves and exclusions, validates canonical facts, and selects up to three products. The product agent explains that approved list.
 
-![Select and assemble: parallel step chains use catalog ingredients and ranked products; code checks product IDs, uses catalog facts, and assembles the routine in the planned order.](assets/images/select-and-assemble.png)
+![Original select-and-assemble illustration: parallel step chains use catalog ingredients and ranked products before the routine is assembled in plan order.](assets/images/select-and-assemble.png)
 
-Code checks selected product IDs against that step's retrieved candidates and restores trusted catalog fields. After all steps finish, deterministic code assembles the routine in its planned order without another model call. Agent-written explanations remain generated text.
+The illustrations are retained from the original workflow and use a fictional profile and three example steps. The exact-search implementation adds server-owned selection, explicit no-match outcomes and bounded canonical reads. The product agent cannot choose or reorder the approved products.
 
-The illustrations use a fictional profile and three example steps. See the [architecture guide](docs/architecture.md) for the implemented request path, streaming contract, and current search limitations.
+After all steps finish, deterministic code rechecks canonical records and assembles the routine in its planned order without another model call. Agent-written explanations remain generated text. See the [architecture guide](docs/architecture.md) for the implemented request path, streaming contract, and qualification limits.
 
 ### Architecture
 
-![Approved reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents, product catalog, and build pipeline.](assets/images/architecture.png)
+![Previously approved reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents, product catalog, and build pipeline.](assets/images/architecture.png)
 
 [View the reference architecture at full resolution](assets/images/architecture.png).
 
-The numbered steps below follow the approved reference architecture:
+The reference image is retained unchanged. Private indexed search and its publication pipeline extend that architecture; the numbered description below includes those changes.
 
-1. **Web application.** The user signs in and submits up to three skin photos. **Amazon CloudFront** serves the React application from a private **Amazon S3** bucket, with **AWS WAF** protecting the web and API paths.
+1. **Web application.** The user signs in and submits up to three skin photos and optional ingredient constraints. **Amazon CloudFront** serves the React application from a private **Amazon S3** bucket, with **AWS WAF** protecting the web and API paths.
 2. **Authentication.** **Amazon Cognito** authenticates administrator-created users. **Amazon API Gateway** validates the Cognito ID token on each analysis request.
 3. **Controlled runtime access.** API Gateway invokes a streaming **AWS Lambda** proxy. The proxy checks the authenticated identity, enforces per-user usage limits and active-analysis leases in **Amazon DynamoDB**, and invokes **Amazon Bedrock AgentCore Runtime** with IAM credentials.
 4. **Analysis and planning.** AgentCore runs the agents in isolated sessions. A skin-analysis agent uses an **Amazon Bedrock** multimodal model to produce a structured profile. A planning agent chooses 2–8 routine steps from the available catalog categories.
-5. **Product selection.** Each routine step runs an ingredient agent followed by a product agent. These chains run in parallel across steps and query the DynamoDB catalog. **Amazon Bedrock Guardrails** screen model calls.
-6. **Build and monitoring.** **AWS CodeBuild** builds the agent image from source in S3 and pushes it to **Amazon ECR** for the runtime. **Amazon CloudWatch** supports API, WAF, build, and runtime observability.
-7. **Assembly and streaming.** Code validates the selected products against retrieved catalog records and assembles the routine in its planned order. Progress and results stream back as SSE through Lambda, API Gateway, and CloudFront to the browser.
+5. **Product selection.** Each step selects exact ingredient IDs, queries private **Amazon OpenSearch Service**, and validates candidates against canonical DynamoDB records. Models explain the server-approved products. **Amazon Bedrock Guardrails** screen model calls. Separate catalog workers publish, reconcile and maintain the index.
+6. **Build and monitoring.** **AWS CodeBuild** builds the agent image from source in S3 and pushes it to **Amazon ECR** for the runtime. **Amazon CloudWatch** supports API, WAF, build, runtime and catalog observability.
+7. **Assembly and streaming.** Code revalidates selected products and assembles the routine in its planned order, including explicit no-match steps. Progress and results stream back as SSE through Lambda, API Gateway, and CloudFront to the browser.
 
-The [architecture guide](docs/architecture.md) explains the Lambda proxy, usage limits, streaming contract, and deployment boundaries in more detail.
+The [architecture guide](docs/architecture.md) explains the Lambda proxy, usage limits, streaming contract, private search and publication boundaries in more detail.
 
 ### Cost
 
-You are responsible for the cost of the AWS services used while running this Guidance. As of June 2026, the cost for running this Guidance with the default settings in the US East (N. Virginia) region is approximately **$74 per month** for processing 1,000 skincare analyses.
+The previous $74/month estimate predates indexed search and is no longer a valid
+estimate for this configuration. Provisioned OpenSearch, private VPC endpoints,
+publication workers, additional DynamoDB reads/writes and storage add fixed and
+usage costs. The default topology uses two search nodes and two Availability Zones;
+it has not been qualified at the specification's traffic target.
 
-We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html) through [AWS Cost Explorer](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/) to help manage costs. Prices are subject to change. For full details, refer to the pricing webpage for each AWS service used in this Guidance.
-
-#### Assumptions
-
-The cost estimate is based on deployment in **US East (N. Virginia) — `us-east-1`**. Pricing may vary by region. It assumes the following usage pattern:
-
-- **1 selfie image** at typical smartphone resolution (~1920×1080), which is downscaled to 1,568 tokens by the API
-- **5 routine steps** on average (the system generates 2–8 steps depending on the skin profile)
-- **12 model invocations** per analysis: 1 Sonnet call (vision) + 1 Haiku call (step planning) + 5 Haiku calls (ingredients) + 5 Haiku calls (products)
-- **~60 seconds** average end-to-end processing time per analysis, with ~70% spent in I/O wait (waiting for model responses)
-
-#### Token Usage Per Analysis
-
-| Agent | Model | Input Tokens | Output Tokens | Calls |
-| --- | --- | --- | --- | --- |
-| Skin Analysis | Claude Sonnet 4.6 | ~3,000 (1,568 image + 1,340 system prompt + 50 text) | ~500 | 1 |
-| Step Analysis | Claude Haiku 4.5 | ~1,100 (520 system prompt + 580 skin profile) | ~600 | 1 |
-| Ingredients (per step) | Claude Haiku 4.5 | ~1,600 (520 system prompt + 400 context + 680 tool result) | ~500 | 5 |
-| Products (per step) | Claude Haiku 4.5 | ~1,700 (490 system prompt + 400 context + 810 tool result) | ~400 | 5 |
-| **Total per analysis** | | **~20,600 input** | **~5,600 output** | **12** |
-
-#### Sample Cost Table
-
-The following table provides a sample cost breakdown for deploying this Guidance with the default parameters in the US East (N. Virginia) Region for one month, processing **1,000 skincare analyses**.
-
-| AWS Service | Dimensions | Cost [USD] |
-| --- | --- | --- |
-| Amazon Bedrock — Claude Sonnet 4.6 | 1,000 calls × 3,000 input tokens = 3.0M input tokens @ $3/MTok; 1,000 × 500 output tokens = 0.5M output tokens @ $15/MTok | $16.50 |
-| Amazon Bedrock — Claude Haiku 4.5 | 11,000 calls × ~1,550 avg input tokens = 17.1M input tokens @ $1/MTok; 11,000 × ~480 avg output tokens = 5.3M output tokens @ $5/MTok | $43.50 |
-| Amazon Bedrock AgentCore Runtime | 1,000 sessions × 60s; CPU active ~30% of time (70% I/O wait): $0.0895/vCPU-hr × 1 vCPU × 5 hrs active; Memory: $0.00945/GB-hr × 2 GB × 16.7 hrs total | $0.76 |
-| Amazon CloudFront | 10 GB data transfer + 50,000 HTTPS requests (within Always Free tier: 1 TB transfer + 10M requests/month) | $0.00 |
-| AWS WAF | 2 Web ACLs ($10) + 2 custom rules ($2) + 1 managed rule group ($1) + 55,000 requests @ $0.60/million ($0.03) | $13.03 |
-| Amazon API Gateway | 5,000 REST API calls @ $3.50/million | $0.02 |
-| Amazon DynamoDB | On-demand mode; ~22,000 read request units @ $0.125/million + ~1,000 write request units @ $0.625/million; <1 GB storage (within 25 GB free tier) | $0.01 |
-| Amazon S3 | <1 GB storage (frontend assets) @ $0.023/GB; 1,000 PUT + 5,000 GET requests | $0.03 |
-| Amazon Cognito | Up to 10,000 monthly active users (within free tier) | $0.00 |
-| Amazon ECR | <1 GB container image storage @ $0.10/GB | $0.10 |
-| **Total estimated monthly cost** | | **~$73.92** |
-
-> **Note:** This estimate is for `us-east-1` — pricing may differ in other supported regions. The primary cost driver is Amazon Bedrock model invocations (~80% of total cost). Costs scale linearly with the number of analyses. Infrastructure costs (WAF, API Gateway) remain relatively constant regardless of usage volume. Model pricing is based on published rates for Claude Sonnet 4.6 ($3/$15 per MTok input/output) and Claude Haiku 4.5 ($1/$5 per MTok input/output). AgentCore Runtime pricing is based on consumption-based billing ($0.0895/vCPU-hr, $0.00945/GB-hr). CloudFront data transfer and requests fall within the [Always Free tier](https://aws.amazon.com/cloudfront/pricing/) (1 TB transfer + 10M requests/month). For the most current rates, refer to the [Amazon Bedrock pricing page](https://aws.amazon.com/bedrock/pricing/) and the [AgentCore pricing page](https://aws.amazon.com/bedrock/agentcore/pricing/).
+Before deploying, estimate the selected Region and instance sizes with the
+[AWS Pricing Calculator](https://calculator.aws/). Include model calls, AgentCore,
+the proxy, search, seven interface endpoints in each of two subnets, catalog
+publication/storage, logs and rebuilds. The [acceptance targets](docs/search-spec/acceptance-targets.yaml)
+require explicit monthly and per-1,000-routine cost ceilings before production qualification.
 
 ## Prerequisites
 
@@ -121,14 +90,14 @@ These deployment instructions are optimized for **macOS** or **Amazon Linux 2023
 | Tool | Minimum Version | Purpose | Installation |
 | --- | --- | --- | --- |
 | Node.js | 24.x (LTS) | Frontend build toolchain | [nodejs.org](https://nodejs.org/) |
-| Python | 3.11 | Agent runtime and utilities | [python.org](https://www.python.org/downloads/) |
+| Python | 3.12 | Agent runtime and utilities | [python.org](https://www.python.org/downloads/) |
 | uv | Latest | Python package manager | [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
 | Terraform | 1.5 | Infrastructure provisioning | [hashicorp.com](https://developer.hashicorp.com/terraform/downloads) |
 | AWS CLI | 2.x | AWS service interaction | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
 
 ### AWS Account Requirements
 
-- An AWS account with permissions to create and manage: IAM roles/policies, Amazon Bedrock, Amazon Bedrock AgentCore, Amazon DynamoDB, Amazon S3, Amazon CloudFront, AWS WAF, Amazon Cognito, Amazon API Gateway, Amazon ECR, and AWS CodeBuild.
+- An AWS account with permissions to create and manage: IAM roles/policies, Amazon Bedrock, Amazon Bedrock AgentCore, Amazon DynamoDB, Amazon S3, Amazon CloudFront, AWS WAF, Amazon Cognito, Amazon API Gateway, Amazon ECR, AWS CodeBuild, Amazon OpenSearch Service, Lambda, VPC endpoints, and EventBridge.
 - Amazon Bedrock model access enabled for the following models in your deployment region:
     - **Anthropic Claude Sonnet 4.6** (cross-region inference profile: `global.anthropic.claude-sonnet-4-6`)
     - **Anthropic Claude Haiku 4.5** (cross-region inference profile: `global.anthropic.claude-haiku-4-5-20251001-v1:0`)
@@ -143,6 +112,7 @@ This Guidance uses Amazon Bedrock cross-region inference and must be deployed in
 | --- | --- |
 | US East (N. Virginia) | `us-east-1` **(default)** |
 | US West (Oregon) | `us-west-2` |
+| Europe (Ireland) | `eu-west-1` |
 
 ## Deployment Steps
 
@@ -159,29 +129,16 @@ cd guidance-for-smart-beauty-on-aws
 make setup
 ```
 
-This command:
-- Installs `uv` if not already present
-- Creates a Python virtual environment (`.venv/`)
-- Installs all Python dependencies from `requirements.txt`
-- Installs frontend npm dependencies
-- Creates the Terraform remote state S3 bucket and DynamoDB lock table
-- Prints the `terraform init` command for the next step
+This installs the locked Python and npm dependencies and packages the proxy and
+catalog worker. It makes no AWS changes. Install the prerequisite tools first.
 
-### 3. Initialize Terraform
+### 3. Review deployment settings
 
-Run the command printed by `make setup`, substituting your AWS account ID:
-
-```bash
-cd terraform && terraform init \
-  -backend-config="bucket=smart-beauty-tfstate-<YOUR_ACCOUNT_ID>" \
-  -backend-config="key=dev/terraform.tfstate" \
-  -backend-config="region=us-east-1" \
-  -backend-config="dynamodb_table=smart-beauty-tfstate-lock" \
-  -backend-config="encrypt=true"
-cd ..
-```
-
-Each environment (`dev`, `staging`, `prod`) uses its own isolated state file, allowing multiple stacks to coexist in the same account.
+Review `terraform/env-dev.tfvars` and `data/search-config.json`. The bundled catalog
+uses GB/GBP, catalog mode and fictional products with unknown stock. Follow the
+[catalog runbook](docs/search-spec/operations.md) for an existing account's OpenSearch
+service-linked role, supplier feeds, private connectivity, index rebuild and rollback.
+`make deploy` bootstraps the state resources and initializes the shared and environment states.
 
 ### 4. Configure AWS credentials
 
@@ -210,9 +167,9 @@ make deploy ENV=staging
 
 The deployment will:
 1. Validate all prerequisites (Node.js, Terraform, AWS CLI, uv, active credentials)
-2. Provision infrastructure via Terraform (DynamoDB, API Gateway, CloudFront, WAF, Cognito, AgentCore)
+2. Provision infrastructure via Terraform, including private OpenSearch, canonical/outbox/metadata tables, publication workers, and the existing application services
 3. Build and push the AgentCore container image via AWS CodeBuild
-4. Migrate the product catalog to DynamoDB (idempotent — safe to re-run)
+4. Initialize the ingredient registry and exact index, transactionally publish the demo into an empty catalog, and wait for a healthy caught-up index
 5. Build the React frontend and deploy to S3 with CloudFront cache invalidation
 
 ### 6. Create a user
@@ -231,7 +188,7 @@ After deployment completes, validate with the following steps:
     ```bash
     cd terraform && terraform output
     ```
-    Confirm the following outputs are present: `cloudfront_url`, `api_gateway_url`, `cognito_user_pool_id`.
+    Confirm the following outputs are present: `app_url`, `api_url`, `cognito_user_pool_id`, `catalog_admin_function_name`.
 
 2. **Verify the CloudFront distribution is active:**
     ```bash
@@ -243,34 +200,36 @@ After deployment completes, validate with the following steps:
 
 3. **Verify the AgentCore Runtime endpoint:**
     ```bash
-    cd terraform && terraform output -raw agentcore_endpoint_url
+    cd terraform && terraform output -raw agentcore_runtime_arn
     ```
 
 4. **Access the application:** Open the CloudFront URL in a browser — you should see the login page.
 
 ## Running the Guidance
 
-1. Open the CloudFront URL (from `terraform output cloudfront_url`) in a modern browser (Chrome, Firefox, Safari, or Edge).
+1. Open the CloudFront URL (from `terraform output app_url`) in a modern browser (Chrome, Firefox, Safari, or Edge).
 2. Sign in with the Cognito user created during deployment. On first login, you will be prompted to set a permanent password.
 3. Click **Start Analysis** to begin the skincare analysis flow.
 4. Grant camera access when prompted and position your face within the on-screen guide overlay.
 5. The camera captures your photo automatically (with countdown timer and flash effect).
 6. Observe real-time streaming progress as the AI agents process your skin:
     - **Skin Analysis** — Identifies skin type (oily, dry, combination, sensitive, normal) and specific concerns
-    - **Step Planning** — Chooses 2–8 routine steps based on the analysis and available categories
-    - **Ingredient Selection** — Selects ingredients available in the catalog for each step
-    - **Product Matching** — Recommends up to 3 products per step from the retrieved catalog candidates
-7. Review your personalized skincare routine with product recommendations, ingredient details, and rationale.
+    - **Step Planning** — Determines 2–8 routine steps based on the analysis
+    - **Ingredient Evaluation** — Selects exact registered ingredient identities for each step
+    - **Product Matching** — Ranks exact ingredient counts, enforces explicit must-haves/exclusions, and returns up to three products per step
+7. Review product match counts, availability facts and any no-match steps. Optional preferences let you set exact exclusions, category must-haves and a per-product price cap before analysis.
 
 ### Expected Output
 
 A complete analysis produces:
 - A structured multi-step skincare routine (morning and/or evening)
-- Up to 3 product recommendations per step with ingredient match scores
+- Up to three products per step with exact match counts, or a completed no-match result. Counts do not establish ingredient effectiveness.
+
+See the [search specification](docs/search-spec/README.md), [implementation evidence](docs/search-spec/implementation.md) and [operations runbook](docs/search-spec/operations.md). One million products and 20 routines/second remain deployment qualification targets.
 
 ## Next Steps
 
-- **Integrate your own product catalog** — Replace `data/products.csv` with your product data and update `data/catalog.yaml` to configure categories, schema mapping, and currency.
+- **Integrate your own product catalog** — Follow the [supplier publication contract](docs/search-spec/operations.md). Use stable product IDs, ordered revisions and a reviewed ingredient registry. Publish JSONL feeds through the canonical/outbox transaction.
 - **Tune AI models** — Update `config.py` to select different Amazon Bedrock models (e.g., Amazon Nova Pro for cost optimization or Claude Opus for enhanced analysis depth).
 - **Add a custom domain** — Attach a custom domain with an ACM certificate by configuring `terraform/env-dev.tfvars`.
 - **Deploy multiple environments** — Use the `ENV` parameter (`dev`, `staging`, `prod`) to run isolated parallel environments with separate Terraform state.
@@ -285,8 +244,8 @@ make destroy
 ```
 
 This command will:
-- Empty the S3 frontend assets bucket
-- Destroy all Terraform-managed infrastructure (CloudFront, WAF, API Gateway, Cognito, DynamoDB, ECR, AgentCore, IAM roles)
+- Remove environment resources according to the selected environment's force-destroy settings
+- Destroy the selected environment, including private search indices, catalog/outbox/metadata tables, application services and networking. Shared resources and remote state remain.
 
 **Manual cleanup required:** The Terraform remote state resources are not destroyed automatically. Remove them manually if no longer needed:
 
@@ -308,19 +267,19 @@ A: Enable both Claude Sonnet 4.6 and Claude Haiku 4.5 in the [Amazon Bedrock Mod
 A: Camera access requires a secure context (HTTPS). CloudFront serves over HTTPS by default. If testing locally, use `localhost` (not a bare IP address).
 
 **Q: The Terraform state bucket already exists.**
-A: The `make setup` command is idempotent — if the state bucket and lock table already exist, it will skip creation and proceed.
+A: `make bootstrap` checks for existing state resources. `make setup` only installs local dependencies.
 
 **Known limitations:**
 
 - Photos are processed in-memory only and are never persisted to storage. Re-analysis requires capturing a new photo.
 - The included product catalog contains 48 synthetic products with fictional brand names for demonstration purposes. Replace with real product data for production use.
-- Amazon Bedrock cross-region inference requires deployment in `us-east-1` or `us-west-2`.
+- The configured private subnet/AZ allowlist supports `us-east-1`, `us-west-2` and `eu-west-1`; verify model access and service quotas in the chosen account.
 - Self-registration is disabled by design. Users must be created by an administrator via `make create-user` or the Cognito console.
 
 **Additional considerations:**
 
 - This Guidance creates an Amazon CloudFront distribution that serves content over the public internet.
-- Amazon Bedrock model invocations are the primary cost driver — costs scale linearly with the number of analyses performed.
+- Provisioned search nodes and private endpoints incur costs while idle; model calls and other usage add to them.
 - The AgentCore container image is built via CodeBuild on each deployment. Subsequent deployments only rebuild if source code has changed.
 
 For feedback, questions, or suggestions, please use the [Issues](https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws/issues) tab in this repository.

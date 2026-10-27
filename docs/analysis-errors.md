@@ -25,6 +25,8 @@ allowlisted copy rather than raw server messages. The reference correlates with
 | `GUARDRAIL_CONTENT` | AWS blocked a content category. |
 | `GUARDRAIL_BLOCKED` | An intervention was reported without a specific blocked category. |
 | `INVALID_INPUT` | Invalid request or unsupported image. Replace the photos. |
+| `INVALID_PREFERENCES` | Invalid, unknown or conflicting constraints, or a mandatory category omitted by the plan. Review the preferences. |
+| `NO_MATCHING_PRODUCTS` | Legacy v1 terminal domain outcome. V2 instead completes each step with its explicit matched/no-match status. |
 | `AUTH_REQUIRED` | No session, expired session, or HTTP 401. Sign in again. |
 | `ACCESS_DENIED` | HTTP 403. Contact support; this is not assumed to be a guardrail block. |
 | `REQUEST_TOO_LARGE` | HTTP 413 or backend image/count/dimension limits. Use up to three images, each at most 1 MiB and 2048 pixels per side. |

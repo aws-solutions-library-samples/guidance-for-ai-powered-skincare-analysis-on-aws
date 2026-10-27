@@ -5,12 +5,41 @@ The default suites require no AWS credentials and make no live model requests.
 
 | Layer | Command | What it checks |
 |---|---|---|
-| Python unit | `uv run --locked pytest tests/unit` | Catalog input validation, routine and metric constraints, product scoring, SSE serialization. |
-| Python integration | `uv run --locked pytest tests/integration` | Repository pagination/failures, tool retry state, deterministic compilation, entrypoint → orchestrator → compiler → SSE, AgentCore ASGI `/ping` and `/invocations`, deployment command wiring, archive contents. |
+| Python unit | `uv run --locked pytest tests/unit` | Exact identity/eligibility/count rules, input validation, bounds, and SSE serialization. |
+| Python integration | `uv run --locked pytest tests/integration` | Bounded reads/retries, canonical binding, sharded publication/recovery, reconciliation, summary pagination, real graph/compiler/SSE and explanation cancellation, deployment wiring and archive contents. |
 | Frontend | `npm test --prefix frontend` | SSE framing/auth/errors, missing-config startup, cancellation and stale callbacks, sign-out isolation, concurrent photo uploads, final result empty states. |
 | Streaming proxy | `npm test --prefix api_proxy` | Verified-claim identity, payload limits, runtime invocation, error handling, transactional usage limits, and lease release/failure behavior with mocked AWS boundaries. |
 | Static checks | `make validate` | Python compilation, TypeScript, Terraform formatting/validation. Terraform providers must already be initialized. |
 | Live smoke | `uv run --locked python -m tests.live_sse --image /path/to/photo.jpg` | A deployed authenticated request, all planned node outputs and a successful compiled routine. Set `API_URL` and `AUTH_TOKEN` explicitly. |
+| Local OpenSearch | `uv run --locked python tests/local_search_engine.py --credentials /absolute/path/credentials.json --report /absolute/path/report.json` | Actual exact-query ordering, external version replay, PIT summary counts, reconciliation, and reader/writer/maintenance permission denials. Dedicated HTTPS loopback engine only; temporary resources are removed. |
+
+The local-engine suite uses 420 varied fixture records and 120 exhaustive
+ordered comparisons. It explicitly records connection warm-up separately from
+the bounded queries. This is correctness and permission evidence, not managed
+AWS capacity evidence. It does not substitute for the one-million-product,
+20-routine/second, update, failure and soak gates in
+[the search verification specification](../docs/search-spec/verification.md).
+The approved qualification budget is recorded
+[separately](../docs/search-spec/qualification-budget.md).
+
+`aws_catalog_publication.py` is an opt-in managed DynamoDB transaction test.
+Pass `--profile`, `--region eu-west-1`, `--account` and `--report`; without
+`--execute` it only reports its estimate. An executed run creates three uniquely
+tagged tables and deletes them after the checks.
+
+`aws_search_qualification.py prepare --directory /absolute/new/run-directory
+--profile PROFILE --account ACCOUNT` copies the current Terraform and locked
+archives, creates an isolated local state configuration, and saves a plan.
+It first checks the worker archive against application source, rejecting stale,
+deleted and duplicate members. The report records source/specification, archive
+and saved-plan SHA-256 manifests. Execution verifies those frozen inputs before
+obtaining an AWS session; source or artifact changes require a new preparation.
+Review `plan.log`, `plan.json` and `report.json` before running `execute` with the
+same arguments. Execution is limited to the eu-west-1 component phase described
+in the budget record and always attempts teardown. Do not use it without the
+corresponding approved spending reserve. Its scheduled rules are disabled and
+the search probe uses Lambda with the runtime's search/read policy fragment;
+this does not qualify the actual AgentCore runtime, public API, models or capacity.
 
 The integration suite uses real application modules and substitutes external
 boundaries. Python tests reject socket connections. Deployment scripts run from

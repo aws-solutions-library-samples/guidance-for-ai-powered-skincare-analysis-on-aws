@@ -1,0 +1,107 @@
+{
+  "example_notes": [
+    "Illustrative target contracts, not an executable request or a production catalog.",
+    "Public request additions accompany the existing validated job_id and images.",
+    "The server holds the deadline/retry budget separately from the immutable SearchRequest.",
+    "Constraint origin comes from the frozen server-side preference binding, not a model-supplied field.",
+    "Matched and no-match outcomes below are alternatives for the same requested step.",
+    "A, B, C, D and X are fictional identities; D is mandatory but earns no preference point."
+  ],
+  "public_request_additions": {
+    "api_version": 2,
+    "preferences": {
+      "excluded_ingredient_ids": ["ingredient-x"],
+      "must_have_by_category": [
+        {
+          "category_id": "Serum",
+          "ingredient_ids": ["ingredient-a", "ingredient-d"]
+        }
+      ],
+      "market": "FR",
+      "currency": "EUR",
+      "max_price_minor": 3000
+    }
+  },
+  "internal_search_request": {
+    "request_id": "server-request-001",
+    "step_id": "server-request-001:Serum",
+    "category_id": "Serum",
+    "catalog_id": "example-catalog",
+    "eligibility_mode": "purchasable",
+    "preferred_ingredient_ids": [
+      "ingredient-a",
+      "ingredient-b",
+      "ingredient-c"
+    ],
+    "must_have_ingredient_ids": ["ingredient-a", "ingredient-d"],
+    "excluded_ingredient_ids": ["ingredient-x"],
+    "market": "FR",
+    "currency": "EUR",
+    "max_price_minor": 3000,
+    "taxonomy_version": "example-v1",
+    "configuration_id": "exact-count-example-001",
+    "index_generation": "products-example-generation-001"
+  },
+  "public_matched_step": {
+    "step_name": "Serum",
+    "when": "Evening",
+    "description": "Example planned step.",
+    "why_for_you": "Example planner explanation, evaluated separately from product matching.",
+    "ingredients": [
+      {
+        "ingredient_id": "ingredient-a",
+        "name": "Ingredient A",
+        "benefit": "No benefit claim in this fictional example.",
+        "why_for_you": "Selected as a preference in this example.",
+        "usage": ""
+      },
+      {
+        "ingredient_id": "ingredient-b",
+        "name": "Ingredient B",
+        "benefit": "No benefit claim in this fictional example.",
+        "why_for_you": "Selected as a preference in this example.",
+        "usage": ""
+      },
+      {
+        "ingredient_id": "ingredient-c",
+        "name": "Ingredient C",
+        "benefit": "No benefit claim in this fictional example.",
+        "why_for_you": "Selected as a preference in this example.",
+        "usage": ""
+      }
+    ],
+    "recommendation_status": "matched",
+    "no_match_reason": null,
+    "products": [
+      {
+        "product_id": "product-001",
+        "name": "Example serum",
+        "price": "€24.00",
+        "price_minor": 2400,
+        "currency": "EUR",
+        "availability": "available",
+        "match_score": "66.7%",
+        "matched_count": 2,
+        "preferred_count": 3,
+        "matched_ingredient_ids": ["ingredient-a", "ingredient-b"],
+        "matched_ingredients": ["Ingredient A", "Ingredient B"],
+        "matched_must_have_ingredient_ids": ["ingredient-a", "ingredient-d"],
+        "image_url": "",
+        "why_for_you": "Contains 2 of your 3 selected ingredients and both must-haves, Ingredient A and Ingredient D.",
+        "usage_tip": ""
+      }
+    ]
+  },
+  "public_no_match_step_fragment": {
+    "step_name": "Serum",
+    "recommendation_status": "no_match",
+    "no_match_reason": "no_matching_products",
+    "products": []
+  },
+  "public_catalog_changed_step_fragment": {
+    "step_name": "Serum",
+    "recommendation_status": "no_match",
+    "no_match_reason": "catalog_changed",
+    "products": []
+  }
+}
