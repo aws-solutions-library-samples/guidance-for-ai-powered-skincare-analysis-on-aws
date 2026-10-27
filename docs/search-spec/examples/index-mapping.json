@@ -1,0 +1,26 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "catalog_id": { "type": "keyword" },
+      "product_id": { "type": "keyword" },
+      "category_id": { "type": "keyword" },
+      "schema_version": { "type": "keyword" },
+      "taxonomy_version": { "type": "keyword" },
+      "source_revision": { "type": "long" },
+      "source_updated_at": { "type": "date" },
+      "ingested_at": { "type": "date" },
+      "matching_hash": { "type": "keyword" },
+      "record_hash": { "type": "keyword" },
+      "ingredient_ids": { "type": "keyword" },
+      "ingredient_list_complete": { "type": "boolean" },
+      "ingredient_resolution_complete": { "type": "boolean" },
+      "price_minor": { "type": "long" },
+      "currency": { "type": "keyword" },
+      "market_ids": { "type": "keyword" },
+      "availability": { "type": "keyword" },
+      "active": { "type": "boolean" },
+      "is_deleted": { "type": "boolean" }
+    }
+  }
+}

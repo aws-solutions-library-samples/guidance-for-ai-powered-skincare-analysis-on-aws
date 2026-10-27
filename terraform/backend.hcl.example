@@ -1,0 +1,10 @@
+# Copy to backend.hcl and fill in your values.
+# Then run: terraform init -backend-config=backend.hcl
+#
+# `make bootstrap` creates these resources; `make deploy` initializes both state roots.
+
+bucket         = "smart-beauty-tfstate-YOUR_ACCOUNT_ID"
+key            = "dev/terraform.tfstate"
+region         = "us-east-1"
+dynamodb_table = "smart-beauty-tfstate-lock"
+encrypt        = true

@@ -1,0 +1,165 @@
+# Proposed implementation/release targets, not measured production results.
+# The exact matching method is decided; freeze deployment-specific targets at G0.
+spec_version: "2.0"
+status: implementation_in_progress
+as_of: "2026-10-27"
+
+method:
+  id: exact_ingredient_count_v1
+  preferred_identity: canonical_exact_id
+  mandatory_semantics: all
+  exclusion_semantics: none_present
+  score: distinct_preferred_ids_present
+  tie_break: product_id_ascending
+  minimum_preferred_matches: 1
+  semantic_retrieval_enabled: false
+  product_description_scoring_enabled: false
+  position_weighting_enabled: false
+  family_substitution_enabled: false
+
+workload:
+  active_products: 1000000
+  checkpoint_products: [1000, 10000, 100000, 1000000]
+  routines_per_second: 20
+  minimum_steps: 2
+  typical_steps: 6
+  maximum_steps: 8
+  typical_step_searches_per_second: 120
+  maximum_step_searches_per_second: 160
+  burst_routines_per_second: 40
+  burst_duration_minutes: 5
+  update_events_per_second: 100
+  update_burst_events_per_second: 1000
+  update_burst_duration_minutes: 5
+  query_mix:
+    broad_additional_eligibility: 0.25
+    category_only_beyond_baseline: 0.25
+    eligibility_one_percent: 0.20
+    eligibility_point_one_percent: 0.15
+    fewer_than_k_eligible: 0.10
+    known_no_match: 0.05
+  result_cache_hit_rate_for_gating: 0
+
+contracts:
+  product_id_characters_max: 128
+  ingredient_id_characters_max: 128
+  ingredient_lookup_name_characters_max: 256
+  preferred_ingredients_min: 1
+  preferred_ingredients_max: 5
+  planner_preferred_ingredients_typical_min: 3
+  must_have_ingredient_references_total_max: 20
+  must_have_categories_max: 8
+  excluded_ingredient_ids_max: 20
+  additional_v2_non_image_payload_bytes_max: 16384
+  ingredient_summary_entries_max: 30
+  ingredient_lookup_references_per_call_max: 20
+  ingredient_discovery_calls_per_step_max: 3
+  price_minor_max: 9007199254740991
+  supported_eligibility_modes: [catalog, purchasable]
+  deployment_eligibility_mode: catalog
+  require_complete_list_for_exclusions: true
+  require_complete_resolution_for_exclusions: true
+  missing_constrained_facts_fail_eligibility: true
+
+search_bounds:
+  logical_index_queries_per_step: 1
+  candidate_ids_max: 100
+  initial_hydration_products_max: 10
+  hydrate_distinct_products_max: 100
+  refill_attempts_max: 1
+  final_products_per_step_max: 3
+  final_validation_products_per_routine_max: 24
+  concurrent_step_searches_per_routine_max: 8
+  dependency_retries_per_step_max: 1
+  final_validation_retries_per_routine_max: 1
+  step_deadline_ms: 1200
+  stage_budget_ms:
+    scheduling_and_readiness: 100
+    index_query: 350
+    hydration_and_refill: 500
+    selection_and_binding: 50
+    shared_retry_reserve: 200
+  routine_hard_deadline_seconds: 120
+
+correctness:
+  fixed_snapshot_ordered_top_100_agreement_required: 1.0
+  fixed_snapshot_ordered_top_3_agreement_required: 1.0
+  returned_scores_equal_exact_counts_required: true
+  known_no_match_correctness_required: 1.0
+  observed_hard_constraint_violations_allowed: 0
+  observed_catalog_fact_violations_allowed: 0
+  observed_cross_request_binding_violations_allowed: 0
+  unprocessed_keys_treated_as_absent_allowed: false
+  partial_search_results_allowed: false
+  runtime_product_scans_allowed: 0
+  runtime_category_enumerations_allowed: 0
+  uncontrolled_search_pagination_allowed: false
+
+performance:
+  application_step_search_p95_ms: 500
+  application_step_search_p99_ms: 1000
+  application_search_failed_late_or_rejected_fraction_max: 0.001
+  routine_first_step_outcome_p95_seconds: 30
+  routine_complete_p95_seconds: 60
+  routine_complete_p99_seconds: 90
+  routine_operational_failure_fraction_max: 0.01
+  valid_routine_completion_fraction_min: 0.99
+  valid_no_match_counts_as_domain_completion: true
+  sse_silence_max_seconds: 15
+  warmup_minutes_min: 15
+  measured_minutes_per_cell_min: 30
+  independent_repetitions: 3
+  soak_hours: 4
+  burst_recovery_minutes_max: 5
+
+freshness:
+  canonical_change_search_visibility_p95_seconds: 30
+  unresolved_change_age_alarm_seconds: 60
+  ingestion_hard_stale_seconds: 300
+  readiness_heartbeat_max_age_seconds: 60
+  advisory_ingredient_summary_refresh_target_seconds: 300
+  pending_outbox_events_may_expire: false
+  delivered_history_retention_days_min: 7
+  tombstone_retention_days_min: 7
+  rollback_generation_retention_days_min: 7
+  retention_must_cover_all_replay_retry_horizons: true
+  retain_identity_high_water_mark_after_tombstone_cleanup: true
+  catalog_reconciliation_hours: 24
+  full_rebuild_hours_max: 12
+  configuration_or_index_rollback_minutes_max: 5
+
+product_validation:
+  initial_distinct_profile_preference_cases_min: 100
+  required_scenario_coverage: all
+  registry_and_feed_provenance_review_required: true
+  planner_and_explanation_acceptance_owner_required: true
+  clinical_efficacy_claim_from_matching_tests_allowed: false
+
+operations:
+  runtime_index_writes_allowed: false
+  anonymous_search_access_allowed: false
+  cross_catalog_access_allowed: false
+  index_network: private
+  production_replica_and_az_failure_test_required: true
+  deployment_strategy: staged_canary
+  canary_percentages: [1, 5, 25, 100]
+  canary_stage_hours_min: 24
+  minimum_completed_routines_per_canary_stage: 1000
+  shadow_fraction_initial: 0.01
+  shadow_fraction_max: 0.05
+  operational_alert_window_minutes: 5
+  operational_alert_consecutive_windows: 2
+
+cost:
+  currency: USD
+  approved_qualification_spend_usd: 200
+  qualification_profile: null # Supply explicitly; retain account/profile in the private run manifest.
+  qualification_region: "eu-west-1"
+  qualification_budget_approved_at: "2026-10-27"
+  maximum_usd_per_1000_valid_completed_routines: null
+  maximum_monthly_fixed_usd: null
+  release_requires_customer_cost_ceiling: true
+  include_failed_requests_and_retries: true
+  include_discovery_canonical_and_final_reads: true
+  include_upstream_agents_and_explanations: true
+  report_update_and_rebuild_cost_separately: true

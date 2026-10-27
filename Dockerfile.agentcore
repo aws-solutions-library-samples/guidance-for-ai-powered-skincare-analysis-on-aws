@@ -1,0 +1,31 @@
+FROM public.ecr.aws/docker/library/python:3.11-slim
+COPY --from=ghcr.io/astral-sh/uv:0.10.10 /uv /uvx /bin/
+
+WORKDIR /app
+
+ENV UV_PYTHON_DOWNLOADS=0
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --group runtime && rm -rf /root/.cache/uv
+ENV PATH="/app/.venv/bin:$PATH"
+
+# Create non-root user (AgentCore best practice)
+RUN useradd -m -u 1000 bedrock_agentcore
+USER bedrock_agentcore
+
+EXPOSE 8080
+
+COPY agents/ agents/
+COPY prompts/ prompts/
+COPY data/catalog.yaml data/catalog.yaml
+COPY config.py .
+COPY catalog.py .
+COPY agentcore_entrypoint.py .
+
+# Fail the image build if the runtime user cannot import the application or
+# read its catalog and prompts. This does not invoke AWS services or models.
+RUN python -c "import agentcore_entrypoint; from catalog import load_catalog; from pathlib import Path; load_catalog(); [p.read_text() for p in Path('prompts').glob('*.txt')]"
+
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/ping', timeout=2)"
+
+CMD ["opentelemetry-instrument", "python", "agentcore_entrypoint.py"]

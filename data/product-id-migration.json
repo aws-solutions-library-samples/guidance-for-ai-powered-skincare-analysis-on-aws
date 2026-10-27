@@ -1,0 +1,199 @@
+{
+  "scope": "Bundled fictional catalog only; supplier feeds need their own reviewed mapping.",
+  "legacy_identity": "sha256(lowercase(trim(category) + \":\" + trim(name)))[:16]",
+  "new_identity": "Stored stable IDs; names no longer determine future IDs.",
+  "mapping": [
+    {
+      "legacy_product_id": "7a1a60fb28090101",
+      "canonical_product_id": "7a1a60fb28090101"
+    },
+    {
+      "legacy_product_id": "94394f07ff5dd586",
+      "canonical_product_id": "94394f07ff5dd586"
+    },
+    {
+      "legacy_product_id": "5c063d72c105d838",
+      "canonical_product_id": "5c063d72c105d838"
+    },
+    {
+      "legacy_product_id": "283e8a504669f5f4",
+      "canonical_product_id": "283e8a504669f5f4"
+    },
+    {
+      "legacy_product_id": "86ed33af4aadeb63",
+      "canonical_product_id": "86ed33af4aadeb63"
+    },
+    {
+      "legacy_product_id": "712fb867a3fac407",
+      "canonical_product_id": "712fb867a3fac407"
+    },
+    {
+      "legacy_product_id": "fc287aa4037a843f",
+      "canonical_product_id": "fc287aa4037a843f"
+    },
+    {
+      "legacy_product_id": "004212631d67bff5",
+      "canonical_product_id": "004212631d67bff5"
+    },
+    {
+      "legacy_product_id": "ff1776f8428441d6",
+      "canonical_product_id": "ff1776f8428441d6"
+    },
+    {
+      "legacy_product_id": "c668dc0f9f7a2518",
+      "canonical_product_id": "c668dc0f9f7a2518"
+    },
+    {
+      "legacy_product_id": "3080db0d1e3caa48",
+      "canonical_product_id": "3080db0d1e3caa48"
+    },
+    {
+      "legacy_product_id": "bf77547b20bc9c67",
+      "canonical_product_id": "bf77547b20bc9c67"
+    },
+    {
+      "legacy_product_id": "e9410a7b588f3d5d",
+      "canonical_product_id": "e9410a7b588f3d5d"
+    },
+    {
+      "legacy_product_id": "2cc53f4c0f3d0fdd",
+      "canonical_product_id": "2cc53f4c0f3d0fdd"
+    },
+    {
+      "legacy_product_id": "42d6ce3bb797c925",
+      "canonical_product_id": "42d6ce3bb797c925"
+    },
+    {
+      "legacy_product_id": "920ae34523af9562",
+      "canonical_product_id": "920ae34523af9562"
+    },
+    {
+      "legacy_product_id": "29fc112755ce95ad",
+      "canonical_product_id": "29fc112755ce95ad"
+    },
+    {
+      "legacy_product_id": "0a2bf9de3d284816",
+      "canonical_product_id": "0a2bf9de3d284816"
+    },
+    {
+      "legacy_product_id": "98ab30fc9f42e045",
+      "canonical_product_id": "98ab30fc9f42e045"
+    },
+    {
+      "legacy_product_id": "7d25a1b9490dc91c",
+      "canonical_product_id": "7d25a1b9490dc91c"
+    },
+    {
+      "legacy_product_id": "294052c9d81116ee",
+      "canonical_product_id": "294052c9d81116ee"
+    },
+    {
+      "legacy_product_id": "88cd05a13173dcec",
+      "canonical_product_id": "88cd05a13173dcec"
+    },
+    {
+      "legacy_product_id": "dae6366fc78a0263",
+      "canonical_product_id": "dae6366fc78a0263"
+    },
+    {
+      "legacy_product_id": "4d075f9821dcf6d8",
+      "canonical_product_id": "4d075f9821dcf6d8"
+    },
+    {
+      "legacy_product_id": "280b0200728a6dc2",
+      "canonical_product_id": "280b0200728a6dc2"
+    },
+    {
+      "legacy_product_id": "c13ce86b7c7483f9",
+      "canonical_product_id": "c13ce86b7c7483f9"
+    },
+    {
+      "legacy_product_id": "80d8381d631613ee",
+      "canonical_product_id": "80d8381d631613ee"
+    },
+    {
+      "legacy_product_id": "23654472502132f8",
+      "canonical_product_id": "23654472502132f8"
+    },
+    {
+      "legacy_product_id": "012fe67201fa1e84",
+      "canonical_product_id": "012fe67201fa1e84"
+    },
+    {
+      "legacy_product_id": "ba8878f8bba3efd5",
+      "canonical_product_id": "ba8878f8bba3efd5"
+    },
+    {
+      "legacy_product_id": "43bc148e6c3ff918",
+      "canonical_product_id": "43bc148e6c3ff918"
+    },
+    {
+      "legacy_product_id": "9caafa32173b10ad",
+      "canonical_product_id": "9caafa32173b10ad"
+    },
+    {
+      "legacy_product_id": "2e904c571d291fe3",
+      "canonical_product_id": "2e904c571d291fe3"
+    },
+    {
+      "legacy_product_id": "65925a4614249600",
+      "canonical_product_id": "65925a4614249600"
+    },
+    {
+      "legacy_product_id": "b27e94041132149f",
+      "canonical_product_id": "b27e94041132149f"
+    },
+    {
+      "legacy_product_id": "819d6712701fddfa",
+      "canonical_product_id": "819d6712701fddfa"
+    },
+    {
+      "legacy_product_id": "0cdc1a2f715e29be",
+      "canonical_product_id": "0cdc1a2f715e29be"
+    },
+    {
+      "legacy_product_id": "10bd589d373e5f80",
+      "canonical_product_id": "10bd589d373e5f80"
+    },
+    {
+      "legacy_product_id": "f6b85a67bd0c8097",
+      "canonical_product_id": "f6b85a67bd0c8097"
+    },
+    {
+      "legacy_product_id": "76c2dc72d4c30724",
+      "canonical_product_id": "76c2dc72d4c30724"
+    },
+    {
+      "legacy_product_id": "d7a8a04a4357bd13",
+      "canonical_product_id": "d7a8a04a4357bd13"
+    },
+    {
+      "legacy_product_id": "0e221502140d698d",
+      "canonical_product_id": "0e221502140d698d"
+    },
+    {
+      "legacy_product_id": "335918b1a6a6cb60",
+      "canonical_product_id": "335918b1a6a6cb60"
+    },
+    {
+      "legacy_product_id": "73afbcc49bd91a84",
+      "canonical_product_id": "73afbcc49bd91a84"
+    },
+    {
+      "legacy_product_id": "c475f3b23dfdfb67",
+      "canonical_product_id": "c475f3b23dfdfb67"
+    },
+    {
+      "legacy_product_id": "bad717fd339a1210",
+      "canonical_product_id": "bad717fd339a1210"
+    },
+    {
+      "legacy_product_id": "75f5728b6ed6d633",
+      "canonical_product_id": "75f5728b6ed6d633"
+    },
+    {
+      "legacy_product_id": "6ab89bfa38f5b0b3",
+      "canonical_product_id": "6ab89bfa38f5b0b3"
+    }
+  ]
+}
