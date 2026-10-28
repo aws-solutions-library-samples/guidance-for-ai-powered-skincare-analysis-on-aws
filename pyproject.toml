@@ -10,7 +10,7 @@ dependencies = [
     "pillow==13.0.0",
     "pydantic==2.12.5",
     "pyyaml==6.0.3",
-    "strands-agents==1.43.0",
+    "strands-agents==1.48.0",
 ]
 
 [dependency-groups]
