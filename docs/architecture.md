@@ -42,6 +42,14 @@ records, initially ten with one bounded refill. Final assembly rechecks at most
 24 selected products. Changed or ineligible products are removed. No eligible
 products produces an explicit no-match result, not a substituted ingredient.
 
+Each step has a 1.2-second search deadline, including queue time. DynamoDB
+allows 250 ms to connect and 100 ms to read; metadata and product reads reserve
+both limits before issuing a call. SDK retries are disabled; unprocessed keys
+share one application retry within that same deadline. Release checks must cover
+cold connections and concurrent searches inside the AgentCore VPC, including
+canonical product reads and final validation. Warm or operator-laptop tests alone
+do not qualify this path.
+
 ## Catalog updates
 
 A trusted publisher writes product records and durable outbox events atomically.
