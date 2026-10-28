@@ -2,106 +2,295 @@
 
 ## Table of Contents
 
-[Overview](#overview) · [Prerequisites](#prerequisites) · [Deploy](#deployment-steps) ·
-[Validate](#deployment-validation) · [Use](#running-the-guidance) ·
-[Develop](#next-steps) · [Cleanup](#cleanup) ·
-[Limitations](#faq-known-issues-additional-considerations-and-limitations) ·
-[Revisions](#revisions) · [Notices](#notices) · [Authors](#authors)
+1. [Overview](#overview)
+    - [Architecture](#architecture)
+    - [How it works](#how-it-works)
+    - [Cost](#cost)
+    - [Sample Cost Table](#sample-cost-table)
+2. [Prerequisites](#prerequisites)
+    - [Operating System](#operating-system)
+    - [Third-party Tools](#third-party-tools)
+    - [AWS Account Requirements](#aws-account-requirements)
+    - [Supported Regions](#supported-regions)
+3. [Deployment Steps](#deployment-steps)
+4. [Deployment Validation](#deployment-validation)
+5. [Running the Guidance](#running-the-guidance)
+6. [Next Steps](#next-steps)
+7. [Cleanup](#cleanup)
+8. [FAQ, Known Issues, Additional Considerations, and Limitations](#faq-known-issues-additional-considerations-and-limitations)
+9. [Revisions](#revisions)
+10. [Notices](#notices)
+11. [Authors](#authors)
 
 ## Overview
 
-Smart Beauty turns skin photos into a suggested skincare routine. AI agents analyze
-the photos and select preferred ingredients; server code finds products by exact
-ingredient matches, and the agents explain the selected products.
+This Guidance demonstrates how to build a personalized skincare analysis application using a multi-agent AI architecture on AWS. A user submits up to three skin photos through a secure web interface. Specialized AI agents analyze the photos and plan a routine; server code selects products from the catalog while the application streams progress to the user.
 
-The sample includes a React web app, Cognito sign-in, a streaming API, agents
-hosted on Amazon Bedrock AgentCore, a private OpenSearch index and a DynamoDB
-catalog. **Product search uses no embeddings or semantic similarity.**
+The multi-agent system is orchestrated as a directed graph using the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and runs on Amazon Bedrock AgentCore Runtime. Specialized agents handle skin analysis, routine planning, ingredient selection, and explanations. Exact ingredient matching uses a private OpenSearch index, with DynamoDB as the authoritative catalog. Progress and intermediate results stream to the frontend via Server-Sent Events (SSE).
 
-![Smart Beauty reference architecture](assets/images/architecture.png)
+**Product search uses no embeddings or semantic similarity.**
 
-The reference image predates the private search and catalog-update components.
-The short [architecture guide](docs/architecture.md) describes the current flow.
+### Architecture
 
-**Cost:** deployment creates billable resources. Search nodes and VPC endpoints
-incur charges while idle; model calls and other usage add to them. Estimate your
-configuration with the [AWS Pricing Calculator](https://calculator.aws/) and
-remove test environments when finished.
+![Previously approved reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents, product catalog, and build pipeline.](assets/images/architecture.png)
+
+[View the reference architecture at full resolution](assets/images/architecture.png).
+
+The reference image predates private indexed search and its publication pipeline;
+the flow below describes the current implementation.
+
+### How it works
+
+1. **Web application.** The user signs in and submits up to three skin photos and optional ingredient constraints. **Amazon CloudFront** serves the React application from a private **Amazon S3** bucket, with **AWS WAF** protecting the web and API paths.
+2. **Authentication.** **Amazon Cognito** authenticates administrator-created users. **Amazon API Gateway** validates the Cognito ID token on each analysis request.
+3. **Controlled runtime access.** API Gateway invokes a streaming **AWS Lambda** proxy. The proxy checks the authenticated identity, enforces per-user usage limits and active-analysis leases in **Amazon DynamoDB**, and invokes **Amazon Bedrock AgentCore Runtime** with IAM credentials.
+4. **Analysis and planning.** AgentCore runs the agents in isolated sessions. A skin-analysis agent uses an **Amazon Bedrock** multimodal model to produce a structured profile. A planning agent chooses 2–8 routine steps from the available catalog categories.
+5. **Product selection.** Step-specific chains run in parallel. Each selects preferred ingredient IDs, queries private **Amazon OpenSearch Service**, ranks exact ingredient matches and enforces explicit must-haves, exclusions and price limits. Code verifies canonical DynamoDB records and selects up to three products per step; models explain that fixed list. **Amazon Bedrock Guardrails** screen model calls. Separate catalog workers publish, reconcile and maintain the index.
+6. **Build and monitoring.** **AWS CodeBuild** builds the agent image from source in S3 and pushes it to **Amazon ECR** for the runtime. **Amazon CloudWatch** supports API, WAF, build, runtime and catalog observability.
+7. **Assembly and streaming.** Code revalidates selected products and assembles the routine in its planned order, including explicit no-match steps. Progress and results stream back as SSE through Lambda, API Gateway, and CloudFront to the browser.
+
+The short [architecture guide](docs/architecture.md) describes the search rules and catalog boundaries.
+
+### Cost
+
+You are responsible for the cost of the AWS services used while running this
+Guidance. The original **June 2026** estimate was approximately **$74 per month**
+for processing **1,000 skincare analyses** in **US East (N. Virginia) — `us-east-1`**.
+
+**This is the historical estimate for the earlier configuration.** It excludes
+the added private OpenSearch infrastructure, VPC endpoints and catalog workers,
+and uses the previous Sonnet 4.6 / Haiku 4.5 models. It must be recalculated for
+the current deployment.
+
+Provisioned search nodes and VPC interface endpoints incur costs while idle.
+Model calls, catalog maintenance, storage and other usage add to those costs.
+Remove test environments when finished.
+
+We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html)
+through [AWS Cost Explorer](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/)
+to help manage costs. Prices are subject to change.
+
+#### Original assumptions
+
+- One selfie per analysis, with an assumed 1,568 image tokens.
+- Five routine steps on average.
+- Twelve model invocations: one Sonnet vision call, one Haiku planning call,
+  five Haiku ingredient calls and five Haiku product calls.
+- Approximately 60 seconds per analysis, with 70% spent waiting for model responses.
+
+### Sample Cost Table
+
+The original breakdown below covers one month and **1,000 skincare analyses**.
+Service rates and free-tier assumptions are those used in the June 2026 estimate.
+
+| AWS Service | Dimensions | Cost [USD] |
+| --- | --- | --- |
+| Amazon Bedrock — Claude Sonnet 4.6 | 1,000 calls × 3,000 input tokens = 3.0M input tokens @ $3/MTok; 1,000 × 500 output tokens = 0.5M output tokens @ $15/MTok | $16.50 |
+| Amazon Bedrock — Claude Haiku 4.5 | 11,000 calls × ~1,550 avg input tokens = 17.1M input tokens @ $1/MTok; 11,000 × ~480 avg output tokens = 5.3M output tokens @ $5/MTok | $43.50 |
+| Amazon Bedrock AgentCore Runtime | 1,000 sessions × 60s; CPU active ~30% of time (70% I/O wait): $0.0895/vCPU-hr × 1 vCPU × 5 hrs active; Memory: $0.00945/GB-hr × 2 GB × 16.7 hrs total | $0.76 |
+| Amazon CloudFront | 10 GB data transfer + 50,000 HTTPS requests (within Always Free tier: 1 TB transfer + 10M requests/month) | $0.00 |
+| AWS WAF | 2 Web ACLs ($10) + 2 custom rules ($2) + 1 managed rule group ($1) + 55,000 requests @ $0.60/million ($0.03) | $13.03 |
+| Amazon API Gateway | 5,000 REST API calls @ $3.50/million | $0.02 |
+| Amazon DynamoDB | On-demand mode; ~22,000 read request units @ $0.125/million + ~1,000 write request units @ $0.625/million; <1 GB storage (within 25 GB free tier) | $0.01 |
+| Amazon S3 | <1 GB storage (frontend assets) @ $0.023/GB; 1,000 PUT + 5,000 GET requests | $0.03 |
+| Amazon Cognito | Up to 10,000 monthly active users (within free tier) | $0.00 |
+| Amazon ECR | <1 GB container image storage @ $0.10/GB | $0.10 |
+| **Total of listed monthly estimates** | | **~$73.95** |
 
 ## Prerequisites
 
-- macOS or Linux; Windows users need WSL2.
-- Python 3.11+, Node.js 24, [uv](https://docs.astral.sh/uv/getting-started/installation/),
-  Terraform 1.5+ and AWS CLI v2.
-- An authenticated AWS CLI profile with permission to deploy the services in
-  `terraform/`. Start with a dedicated test account.
-- Amazon Bedrock access to the configured Claude Sonnet 5.5 and Haiku 5.5 models.
-  Complete the [model-access prerequisites](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
+### Operating System
 
-Terraform accepts `us-east-1` (default), `us-west-2` and `eu-west-1`. Confirm model
-availability and account quotas in your chosen region. The configured global
-inference profiles can process requests outside that region.
+These deployment instructions are optimized for **macOS** or **Amazon Linux 2023 / Ubuntu 22.04+**. Deployment on Windows requires WSL2 (Windows Subsystem for Linux).
+
+### Third-party Tools
+
+| Tool | Minimum Version | Purpose | Installation |
+| --- | --- | --- | --- |
+| Node.js | 24.x (LTS) | Frontend build toolchain | [nodejs.org](https://nodejs.org/) |
+| Python | 3.11+ (3.12 tested) | Agents and local utilities | [python.org](https://www.python.org/downloads/) |
+| uv | 0.10.10 (tested) | Python package manager | [docs.astral.sh/uv](https://docs.astral.sh/uv/getting-started/installation/) |
+| Terraform | 1.5 | Infrastructure provisioning | [hashicorp.com](https://developer.hashicorp.com/terraform/downloads) |
+| AWS CLI | 2.x | AWS service interaction | [aws.amazon.com/cli](https://aws.amazon.com/cli/) |
+
+### AWS Account Requirements
+
+- An AWS account with permissions to create and manage: IAM roles/policies, Amazon Bedrock, Amazon Bedrock AgentCore, Amazon DynamoDB, Amazon S3, Amazon CloudFront, AWS WAF, Amazon Cognito, Amazon API Gateway, Amazon ECR, AWS CodeBuild, Amazon OpenSearch Service, Lambda, VPC endpoints, Amazon CloudWatch, and EventBridge. Use a dedicated test account for the first deployment.
+- Account access to the following Amazon Bedrock models from your deployment region:
+    - **Anthropic Claude Sonnet 5.5** (cross-region inference profile: `global.anthropic.claude-sonnet-5-5`)
+    - **Anthropic Claude Haiku 5.5** (cross-region inference profile: `global.anthropic.claude-haiku-5-5`)
+
+  Follow the current [Bedrock model-access prerequisites](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html), including Anthropic's first-time-use form and any required AWS Marketplace subscription permissions. Complete account activation using an authorized administrator before testing the restricted runtime role.
+
+  Model settings are defined in `config.py`; the Terraform model allowlist in
+  `terraform/iam.tf` must remain consistent with those settings.
+
+### Supported Regions
+
+This Guidance uses Amazon Bedrock cross-region inference and must be deployed in one of the following regions:
+
+| Region | Region Code |
+| --- | --- |
+| US East (N. Virginia) | `us-east-1` **(default)** |
+| US West (Oregon) | `us-west-2` |
+| Europe (Ireland) | `eu-west-1` |
+
+These are the regions accepted by the Terraform configuration. Validate model availability and account quotas in the selected region before deployment. The default models use **global** inference profiles, so inference can run outside the deployment region; see [global cross-region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html).
 
 ## Deployment Steps
+
+### 1. Clone the repository
 
 ```bash
 git clone https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws.git
 cd guidance-for-smart-beauty-on-aws
-make setup
-
-export AWS_PROFILE=your-profile
-export AWS_REGION=us-east-1
-aws sts get-caller-identity
-make deploy ENV=test
-make create-user EMAIL=user@example.com
 ```
 
-`make setup` installs local dependencies and packages the workers without AWS
-changes. `make deploy` applies Terraform, builds the runtime and frontend, and
-loads the fictional catalog into an empty environment. It applies changes without
-another confirmation prompt. The created user receives an invitation email.
+### 2. Run initial setup
+
+```bash
+make setup
+```
+
+This installs the locked Python and npm dependencies and packages the proxy and
+catalog worker. It makes no AWS changes. Install the prerequisite tools first.
 
 Review `terraform/env-test.tfvars`, `data/search-config.json` and
-`data/ingredient-registry.json` before deploying. Optional overrides belong in
-the ignored `terraform/terraform.tfvars`; start from
-`terraform/terraform.tfvars.example`. Supported environments are `dev`, `test`,
-`staging` and `prod`.
+`data/ingredient-registry.json`. See [Product catalog](#product-catalog) for the
+sample data and supplier feed requirements. Optional local overrides belong in
+the ignored `terraform/terraform.tfvars`; start from `terraform/terraform.tfvars.example`.
 
-Each environment uses its own `<environment>/terraform.tfstate`. API Gateway
-logging is shared: deployment reuses an existing role or creates one through
-`terraform/shared/`. Do not overwrite another application's shared configuration.
+### 3. Configure AWS credentials
+
+```bash
+export AWS_PROFILE=your-profile
+export AWS_REGION=us-east-1
+
+# Verify access
+aws sts get-caller-identity
+```
+
+Use an authenticated AWS CLI profile with temporary credentials. Confirm that the returned account is the intended deployment account.
+
+### 4. Deploy the full stack
+
+```bash
+make deploy ENV=test
+```
+
+For subsequent environments, select `dev`, `staging`, or `prod`:
+
+```bash
+make deploy ENV=staging
+```
+
+`make deploy` creates resources and applies Terraform without a separate approval prompt. It will:
+
+1. Bootstrap the remote state bucket and lock table in `us-east-1`, and check tools and AWS credentials.
+2. Reuse an existing account-level API Gateway logging role. If none is configured, initialize and apply logging resources from `terraform/shared/`.
+3. Initialize and apply the selected environment, including private OpenSearch, canonical/outbox/metadata tables, catalog workers, and the existing application services.
+4. Build the AgentCore image through CodeBuild when the source hash changes.
+5. Initialize the ingredient registry and exact index, transactionally publish the demo into an empty catalog, and wait for the index to catch up. Existing catalog updates use the [supplier feed importer](scripts/migrate_products.py).
+6. Build and upload the frontend and request a CloudFront cache invalidation.
+
+The deployment uses `<environment>/terraform.tfstate`, plus `shared/terraform.tfstate` when it creates shared logging resources. An existing logging role must allow API Gateway to write this application's logs; the deployment does not modify that role's permissions. Do not apply `terraform/shared/` manually over another application's account-level logging configuration. All commands below assume the repository root and the environment most recently selected by deployment.
 
 Run `make deploy ENV=test` again from an updated checkout to update that same
 environment. The source hash determines whether the agent image is rebuilt.
 
+### 5. Create a user
+
+```bash
+make create-user EMAIL=user@example.com
+```
+
+The user will receive a temporary password and must set a new password on first login.
+
 ## Deployment Validation
+
+After deployment completes, run these commands from the repository root:
 
 ```bash
 terraform -chdir=terraform output
+aws cloudfront get-distribution \
+  --id "$(terraform -chdir=terraform output -raw cloudfront_distribution_id)" \
+  --query 'Distribution.Status' --output text
+aws bedrock-agentcore-control get-agent-runtime \
+  --agent-runtime-id "$(terraform -chdir=terraform output -raw agentcore_runtime_id)" \
+  --region "$(terraform -chdir=terraform output -raw aws_region)" \
+  --query status --output text
 terraform -chdir=terraform output -raw app_url
 ```
 
-Open the app URL and complete sign-in, photo upload and an analysis. Confirm that
-progress arrives before the final routine and that product details match the
-catalog. A successful Terraform apply alone does not verify the application.
+Confirm that outputs include `app_url`, `api_url`, `cognito_user_pool_id`, and `catalog_admin_function_name`, CloudFront reports `Deployed`, and AgentCore reports `READY`. Open `app_url`, confirm that the landing page loads, and choose **Start Analysis** to reach sign-in. These checks establish resource readiness, not successful analysis.
 
-Optional live checks are available through
+Complete sign-in, photo upload and an analysis in the browser. Confirm that
+progress arrives before the final routine and that product details match the
+catalog. Optional live checks are available through
 `uv run --locked python -m tests.live_release --help` and
 `uv run --locked python -m tests.live_models --help`. They require explicit
 test-account and execution options and can incur AWS charges.
 
 ## Running the Guidance
 
-1. Open the app URL and sign in. Set a new password on first login.
-2. Capture or upload the three photos requested by the browser.
-3. Optionally expand **Ingredient preferences** to set exclusions, category
-   must-haves or a maximum price per product. Blank inputs impose none of these.
-4. Start analysis and review the routine, product match counts and any no-match
-   results. A match count measures ingredient coverage, not effectiveness.
+1. Open the application URL from `terraform -chdir=terraform output -raw app_url` in a modern browser (Chrome, Firefox, Safari, or Edge).
+2. Click **Start Analysis** to begin the skincare analysis flow.
+3. Sign in with the Cognito user created during deployment. On first login, you will be prompted to set a permanent password.
+4. Grant camera access when prompted and position your face within the on-screen guide overlay.
+5. Follow the capture flow for three photos, or use the three-photo upload flow. The API accepts one to three photos; the browser guides users through three views.
+6. Optionally expand **Ingredient preferences** to set exact exclusions, category must-haves or a maximum price per product. Blank inputs impose none of these.
+7. Start analysis and observe real-time streaming progress:
+    - **Skin Analysis** — Identifies skin type (oily, dry, combination, sensitive, normal) and specific concerns
+    - **Step Planning** — Determines 2–8 routine steps based on the analysis
+    - **Ingredient Evaluation** — Selects exact registered ingredient identities for each step
+    - **Product Matching** — Ranks exact ingredient counts, enforces explicit must-haves/exclusions, and returns up to three products per step
+8. Review product match counts, availability facts and any no-match steps.
+
+### Expected Output
+
+A complete analysis produces:
+
+- A structured multi-step skincare routine (morning and/or evening)
+- Up to three products per step with exact match counts, or a completed no-match result. Counts do not establish ingredient effectiveness.
 
 ## Next Steps
 
-**Run local checks** after `make setup`:
+### Product catalog
+
+`data/products.csv` contains 48 fictional products in six categories, using GB/GBP
+defaults. `data/ingredient-registry.json` contains 61 demo ingredient identities
+with no additional aliases.
+
+For your own catalog, configure categories in `data/catalog.yaml` and
+`data/search-config.json`, set supported markets/currencies in the latter, and
+provide reviewed ingredient identities and aliases in `data/ingredient-registry.json`
+before the first deployment. Supplier feeds use **JSONL: one product per line**.
+
+| Supplier fields | Expected values |
+| --- | --- |
+| `product_id`, `source_revision` | Stable product ID and a positive integer revision, increased whenever the product changes. |
+| `name`, `category_id` | Product name and a category from the configured list. |
+| `raw_ingredients`, `ingredient_list_complete` | Array of ingredient names; set the completeness flag to `true` only for a full supplier ingredient list. Names resolve through the reviewed registry. |
+| `active`, `is_deleted` | Boolean lifecycle flags; searchable products must be active and not deleted. |
+| `source_updated_at`, `source_provenance` | Source update timestamp with a timezone, and a supplier/source reference. |
+| `market_ids`, `currency`, `price_minor`, `availability` | Supplier facts when known. Price is an integer in minor units; availability is `available`, `unavailable` or `unknown`. |
+
+The default search requires `market_ids` to include `GB` and `currency` to be `GBP`;
+`price_minor: 2500` means £25.00. Missing facts remain unknown: a price cap requires
+a known price, and exclusions require a complete, fully resolved ingredient list.
+Publish the feed with the [importer](scripts/migrate_products.py):
+
+```bash
+make migrate-products SOURCE_JSONL=/absolute/path/to/supplier.jsonl
+```
+
+Use the intended environment's initialized Terraform state and a trusted publisher
+identity. Registry/schema changes in an existing catalog need an explicit migration;
+editing the local JSON files alone does not update its published registry.
+
+### Local development
+
+Run local checks after `make setup`:
 
 ```bash
 make test
@@ -112,25 +301,6 @@ make validate
 
 Tests use mocked AWS boundaries unless you explicitly run a live checker.
 
-**Use your own catalog:** configure categories in `data/catalog.yaml` and
-`data/search-config.json`, and provide a validated identity/alias registry in
-`data/ingredient-registry.json` before the first deployment. The bundled registry
-is a demo dictionary, not a universal ingredient database. Supplier JSONL records
-need stable product IDs, increasing revisions and explicit ingredient, category,
-provenance and timestamp fields; price, currency, market, stock and ingredient-list
-completeness must come from the supplier. See the importer contract in
-[`scripts/migrate_products.py`](scripts/migrate_products.py).
-
-```bash
-make migrate-products SOURCE_JSONL=/absolute/path/to/supplier.jsonl
-```
-
-Use the intended environment's initialized Terraform state and a trusted publisher
-identity. Registry/schema changes in an existing catalog need an explicit migration;
-editing the local JSON files alone does not update its published registry.
-
-**Find the code:**
-
 | Path | Purpose |
 | --- | --- |
 | `agents/`, `prompts/`, `config.py` | Workflow, exact search and model settings |
@@ -139,39 +309,61 @@ editing the local JSON files alone does not update its published registry.
 | `terraform/`, `scripts/` | Infrastructure, deployment and cleanup |
 | `tests/` | Application and deployment checks |
 
-Model changes must keep `config.py` and `terraform/iam.tf` consistent. Follow
-[CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
+Follow [CONTRIBUTING.md](CONTRIBUTING.md) for contributions.
+
+### Customization
+
+- **Tune AI models** — Keep `config.py`, the Terraform model allowlist, and IAM permissions consistent. Verify image and structured-output support, guardrail behavior, and recommendation quality before changing the defaults.
+- **Add a custom domain** — Copy `terraform/terraform.tfvars.example` to the ignored `terraform/terraform.tfvars` and configure the domain, hosted zone, and ACM certificate in `us-east-1`.
+- **Deploy multiple environments** — Use the `ENV` parameter (`dev`, `test`, `staging`, `prod`) for separate environment state. Account-level logging resources and the state bucket remain shared.
+- **Customize content guardrails** — Adjust `terraform/bedrock_guardrails.tf` to modify content filtering, PII blocking, and topic restrictions, and repeat the guardrail tests.
 
 ## Cleanup
+
+Remove the selected environment using the same account, region, and environment used for deployment:
 
 ```bash
 make destroy ENV=test
 ```
 
-Use the same account, region and environment as deployment. The command asks for
-confirmation and deletes that environment's infrastructure and data. Nonempty
-buckets/repositories can block staging/production deletion; the production user
-pool also has deletion protection.
+The command asks for confirmation and destroys that environment's infrastructure and data. In `dev` and `test`, the committed configuration allows deletion of non-empty buckets and ECR repositories. In `staging` and `prod`, retained objects or images can prevent deletion; review and remove data deliberately before retrying.
+This includes the private search index, canonical catalog, outbox, metadata tables, and networking. Shared resources and remote state remain.
 
-Shared API Gateway logging, the state bucket, lock table and account-level service
-roles remain. Keep them while another environment or application depends on them.
-Preserve Terraform state until environment teardown is verified.
+The `prod` Cognito pool also has deletion protection enabled. Disable that protection deliberately before attempting permanent production teardown.
+
+**Shared resources remain:** `terraform/shared/` owns account-level API Gateway logging configuration, and the state bucket and lock table are retained. Keep them while any environment or other API depends on them. Only after every environment is removed and account-level dependencies are reviewed should the shared stack be destroyed and remote state retired. If bucket versioning has been enabled, deleting current objects alone does not remove stored versions. Keep state backups until teardown is verified; do not delete the state bucket first.
 
 ## FAQ, Known Issues, Additional Considerations, and Limitations
 
-- The sample has **48 fictional products and 61 fixture ingredient identities**,
-  with GB/GBP defaults and no extra aliases. Real catalog integration requires
-  reviewed mappings and supplier facts.
-- Camera access requires HTTPS or localhost. Self-registration is disabled;
-  administrators create users.
-- Application code handles photos in memory. Review managed-service logging,
-  retention, processing regions and the custom-domain TLS configuration before
-  production use.
-- The pinned AWS telemetry dependency has an unresolved
-  [OpenTelemetry advisory](https://github.com/advisories/GHSA-xcq7-p3pf-p88h).
-  Production security, capacity and recommendation quality are not qualified.
-- For failures, use the request reference and actual CloudWatch error. Report
-  security concerns through [SECURITY.md](SECURITY.md).
+**Q: Deployment fails at the CodeBuild step.**
+A: Verify that your AWS account has CodeBuild service permissions and that the ECR repository was created. Check the CodeBuild project logs in the CloudWatch console for detailed error output.
+
+**Q: I receive "model access not available" errors at runtime.**
+A: Check regional availability, account entitlement, Anthropic first-time-use requirements, and IAM/organization policies for both configured models. Follow the [current model-access documentation](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html); third-party subscription activation can be asynchronous. Use the actual AWS error to diagnose the failure.
+
+**Q: The browser camera does not activate.**
+A: Camera access requires a secure context (HTTPS). CloudFront serves over HTTPS by default. If testing locally, use `localhost` (not a bare IP address).
+
+**Q: The Terraform state bucket already exists.**
+A: `make bootstrap` (also run by `make deploy`) reuses the account's existing state bucket and lock table. `make setup` only installs local dependencies.
+
+**Known limitations:**
+
+- Application code processes photos in memory and does not write them to the product database or an image bucket. Review managed-service logging and retention separately. Re-analysis requires supplying photos again.
+- Production security, catalog scale, sustained throughput and recommendation quality still require validation for your workload.
+- The pinned AWS telemetry dependency is affected by an [OpenTelemetry advisory](https://github.com/advisories/GHSA-xcq7-p3pf-p88h).
+- Terraform accepts `us-east-1`, `us-west-2`, and `eu-west-1`; global model inference is not confined to the deployment region.
+- Self-registration is disabled by design. Users must be created by an administrator via `make create-user` or the Cognito console.
+
+**Additional considerations:**
+
+- This Guidance creates an Amazon CloudFront distribution that serves content over the public internet.
+- The default CloudFront certificate uses its default TLS policy. Configure a custom domain and certificate if you require TLS 1.2 or later.
+- Provisioned search nodes and private endpoints incur costs while idle; model calls and other usage add to them.
+- The AgentCore container image is built via CodeBuild when the packaged source hash changes.
+
+For feedback, questions, or suggestions, please use the [Issues](https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws/issues) tab in this repository.
+Report security concerns through [SECURITY.md](SECURITY.md).
 
 ## Revisions
 
