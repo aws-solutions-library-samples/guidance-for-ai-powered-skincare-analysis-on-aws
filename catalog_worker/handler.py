@@ -28,6 +28,10 @@ def components():
 
 def worker(event, context):
     control, search = components()
+    # CONFIG is published last by initialization. Scheduled invocations can
+    # arrive before that step, and must not compete for its projection leases.
+    if control.get("CONFIG") is None:
+        return {"status": "not_initialized"}
     projection = ProjectionWorker(
         control, Outbox(control.client, os.environ["CATALOG_OUTBOX_TABLE_NAME"], control.catalog_id),
         ProjectionWriter(search), products_table=os.environ["PRODUCTS_TABLE_NAME"],
@@ -55,6 +59,8 @@ def worker(event, context):
 
 def maintenance(event, context):
     control, search = components()
+    if control.get("CONFIG") is None:
+        return {"status": "not_initialized"}
     job = CatalogMaintenance(
         control, Outbox(control.client, os.environ["CATALOG_OUTBOX_TABLE_NAME"], control.catalog_id),
         ProjectionWriter(search), products_table=os.environ["PRODUCTS_TABLE_NAME"],
@@ -98,7 +104,21 @@ def admin(event, context):
     if action == "initialize":
         config = SearchConfiguration.model_validate_json(Path("data/search-config.json").read_text())
         registry = IngredientRegistry(json.loads(Path("data/ingredient-registry.json").read_text()), config.taxonomy_version)
-        return administration.initialize(config, registry)
+        # Initialization is replayable, including on an existing catalog. Wait
+        # briefly for ordinary worker leases; never remove another owner's lock.
+        deadline = time.monotonic() + min(
+            60, max(0, context.get_remaining_time_in_millis() / 1000 - 10),
+        )
+        while True:
+            try:
+                return administration.initialize(config, registry)
+            except ClientError as exc:
+                if not lease_contention(exc):
+                    raise
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise
+                time.sleep(min(1, remaining))
     if action == "status":
         return {
             **{key: control.get(key) for key in ("CONFIG", "SOURCE", "PROJECTION", "REBUILD")},
