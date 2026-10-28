@@ -384,6 +384,13 @@ A: `make bootstrap` (also run by `make deploy`) reuses the account's existing st
 - Global model inference is not confined to the deployment region.
 - Self-registration is disabled by design. Users must be created by an administrator via `make create-user` or the Cognito console.
 
+**Analysis limits:**
+
+- Results and progress are held in the current browser page. There is no saved-job recovery or automatic retry; refreshing the page or losing the stream requires starting a new analysis.
+- Each authenticated user can have one active analysis at a time. The default allowance is five accepted analyses per fixed UTC hour, configurable with `analysis_requests_per_hour`. Accepted attempts count even if processing later fails. Deployment-wide proxy concurrency defaults to 10, configurable with `analysis_proxy_concurrency`.
+- After an ambiguous invocation or stream failure, the proxy retains the user's active-request lock because backend work may still be running. The lock expires three minutes after acquisition; a retry before expiry can return `ANALYSIS_IN_PROGRESS`. Normal stream completion, including a reported application error, or a definite invocation rejection releases the lock early.
+- The runtime has a 120-second routine deadline and emits heartbeats every 10 seconds while awaiting events. CloudFront's origin read timeout remains 60 seconds, so interrupted heartbeats or delays before streaming starts can still cause a timeout. The Lambda proxy and API Gateway integration have separate 15-minute timeouts.
+
 **Additional considerations:**
 
 - This Guidance creates an Amazon CloudFront distribution that serves content over the public internet.
