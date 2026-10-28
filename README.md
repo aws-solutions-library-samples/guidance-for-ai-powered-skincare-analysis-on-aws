@@ -393,6 +393,10 @@ A: `make bootstrap` (also run by `make deploy`) reuses the account's existing st
 
 **Known limitations:**
 
+- Products without catalog photographs use bundled, AI-generated category
+  illustrations marked **Illustrative image**. These do not depict the named
+  products. See [product image guidance](docs/product-images.md) to replace them.
+
 - Application code processes photos in memory and does not write them to the product database or an image bucket. Review managed-service logging and retention separately. Re-analysis requires supplying photos again.
 - Production security, catalog scale, sustained throughput and recommendation quality still require validation for your workload.
 - The pinned AWS telemetry dependency is affected by an [OpenTelemetry advisory](https://github.com/advisories/GHSA-xcq7-p3pf-p88h).
