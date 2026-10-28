@@ -149,6 +149,12 @@ These deployment instructions are optimized for **macOS** or **Amazon Linux 2023
   Model settings are defined in `config.py`; the Terraform model allowlist in
   `terraform/iam.tf` must remain consistent with those settings.
 
+Agents use Bedrock Converse streaming and guardrails. Native strict output is
+enabled for skin analysis and routine planning. Ingredient selection and product
+explanations use standard Converse tool output with Pydantic and catalog-ID
+validation because repeated live tests found incomplete or incorrect content
+with strict decoding for those nested schemas.
+
 ### Supported Regions
 
 Choose the deployment region through `AWS_REGION` or your AWS CLI profile;
@@ -261,6 +267,11 @@ catalog. Optional live checks are available through
 `uv run --locked python -m tests.live_release --help` and
 `uv run --locked python -m tests.live_models --help`. They require explicit
 test-account and execution options and can incur AWS charges.
+
+For synthetic-profile explanation checks, use
+`uv run --locked python -m tests.live_explanations --help`. Review the generated
+wording as well as the mechanical checks; those checks do not establish
+personalization quality or the correctness of every generated claim.
 
 ## Running the Guidance
 

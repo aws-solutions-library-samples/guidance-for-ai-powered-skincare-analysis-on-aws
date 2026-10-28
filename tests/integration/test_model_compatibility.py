@@ -184,6 +184,59 @@ def test_native_schema_retry_does_not_bypass_guardrails():
     assert model.client.converse_stream.call_count == 2
 
 
+def test_ingredient_output_keeps_validation_without_native_strict_decoding():
+    detail = {
+        "name": "Glycerin", "benefit": "Hydration", "why_for_you": "Comfort",
+        "usage": "Follow the label",
+    }
+    invalid = {
+        "step_name": "Cleanser", "key_ingredients": [detail], "analysis_notes": "Gentle care",
+    }
+    valid = {
+        **invalid, "key_ingredients": [{**detail, "ingredient_id": "demo-glycerin"}],
+    }
+    model = model_with_responses(config.INGREDIENT_MODEL_CONFIG, [
+        tool_response("IngredientsAnalysisOutput", invalid),
+        tool_response("IngredientsAnalysisOutput", valid),
+    ])
+    agent = Agent(model=model, structured_output_model=IngredientsAnalysisOutput, callback_handler=None)
+    result = agent("Return the selected ingredient", limits={"turns": 4})
+    assert result.structured_output == IngredientsAnalysisOutput.model_validate(valid)
+    requests = [call.kwargs for call in model.client.converse_stream.call_args_list]
+    assert len(requests) == 2
+    for request in requests:
+        assert request["modelId"] == config.FAST_MODEL_CONFIG["model_id"]
+        assert request["guardrailConfig"]["guardrailIdentifier"] == "test-guardrail"
+        assert not request["toolConfig"]["tools"][0]["toolSpec"].get("strict", False)
+
+
+def test_blank_explanation_retries_with_validation_and_guardrails():
+    invalid = {
+        "step_name": "Cleanser",
+        "products": [{"product_id": "example-product", "why_for_you": "Supports comfort.", "usage_tip": ""}],
+    }
+    valid = {
+        "step_name": "Cleanser",
+        "products": [{
+            "product_id": "example-product", "why_for_you": "Supports comfort.",
+            "usage_tip": "Use as the first step in the morning.",
+        }],
+    }
+    model = model_with_responses(config.EXPLANATION_MODEL_CONFIG, [
+        tool_response("ProductExplanations", invalid),
+        tool_response("ProductExplanations", valid),
+    ])
+    agent = Agent(model=model, structured_output_model=ProductExplanations, callback_handler=None)
+    result = agent("Explain this selected product", limits={"turns": 4})
+    assert result.structured_output == ProductExplanations.model_validate(valid)
+    requests = [call.kwargs for call in model.client.converse_stream.call_args_list]
+    assert len(requests) == 2
+    for request in requests:
+        assert request["modelId"] == config.FAST_MODEL_CONFIG["model_id"]
+        assert request["guardrailConfig"]["guardrailIdentifier"] == "test-guardrail"
+        assert not request["toolConfig"]["tools"][0]["toolSpec"].get("strict", False)
+
+
 def test_forced_choice_among_multiple_tools_is_not_silently_weakened():
     model = model_with_responses(config.MODEL_CONFIG, [])
 
