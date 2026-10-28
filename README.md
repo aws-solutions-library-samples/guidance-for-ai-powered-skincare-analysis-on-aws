@@ -32,22 +32,20 @@ The multi-agent system is orchestrated as a directed graph using the [Strands Ag
 
 ### Architecture
 
-![Previously approved reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents, product catalog, and build pipeline.](assets/images/architecture.png)
+![Reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents and Amazon OpenSearch Service product search in a private VPC, catalog ingestion, and build pipeline.](assets/images/architecture.png)
 
 [View the reference architecture at full resolution](assets/images/architecture.png).
 
-The reference image predates private indexed search and its publication pipeline;
-the flow below describes the current implementation.
-
 ### How it works
 
-1. **Web application.** The user signs in and submits up to three skin photos and optional ingredient constraints. **Amazon CloudFront** serves the React application from a private **Amazon S3** bucket, with **AWS WAF** protecting the web and API paths.
-2. **Authentication.** **Amazon Cognito** authenticates administrator-created users. **Amazon API Gateway** validates the Cognito ID token on each analysis request.
-3. **Controlled runtime access.** API Gateway invokes a streaming **AWS Lambda** proxy. The proxy checks the authenticated identity, enforces per-user usage limits and active-analysis leases in **Amazon DynamoDB**, and invokes **Amazon Bedrock AgentCore Runtime** with IAM credentials.
-4. **Analysis and planning.** AgentCore runs the agents in isolated sessions. A skin-analysis agent uses an **Amazon Bedrock** multimodal model to produce a structured profile. A planning agent chooses 2–8 routine steps from the available catalog categories.
-5. **Product selection.** Step-specific chains run in parallel. Each selects preferred ingredient IDs, queries private **Amazon OpenSearch Service**, ranks exact ingredient matches and enforces explicit must-haves, exclusions and price limits. Code verifies canonical DynamoDB records and selects up to three products per step; models explain that fixed list. **Amazon Bedrock Guardrails** screen model calls. Separate catalog workers publish, reconcile and maintain the index.
-6. **Build and monitoring.** **AWS CodeBuild** builds the agent image from source in S3 and pushes it to **Amazon ECR** for the runtime. **Amazon CloudWatch** supports API, WAF, build, runtime and catalog observability.
-7. **Assembly and streaming.** Code revalidates selected products and assembles the routine in its planned order, including explicit no-match steps. Progress and results stream back as SSE through Lambda, API Gateway, and CloudFront to the browser.
+1. **Web application.** An administrator-created user signs in and submits one to three skin photos (up to 1 MiB each) and optional ingredient constraints. **Amazon CloudFront** serves the React application from a private **Amazon S3** bucket, with **AWS WAF** protecting the web path.
+2. **Authentication.** **Amazon Cognito** authenticates the user. **Amazon API Gateway** validates the Cognito ID token on the analysis and ingredient-lookup routes. A second **AWS WAF** web ACL admits only traffic that carries CloudFront's origin-verification header.
+3. **Controlled runtime access.** API Gateway invokes a streaming **AWS Lambda** proxy. The proxy checks the authenticated identity, enforces per-user usage limits and active-analysis leases in **Amazon DynamoDB**, and invokes **Amazon Bedrock AgentCore Runtime** with IAM credentials. Photos are not stored.
+4. **Analysis and planning.** AgentCore runs the agents in isolated sessions inside a private VPC. A skin-analysis agent uses an **Amazon Bedrock** multimodal model to produce a structured profile. A planning agent chooses 2–8 routine steps from the available catalog categories.
+5. **Product selection.** Step-specific chains run in parallel. Each ingredient agent selects preferred ingredient IDs. Server code then queries private **Amazon OpenSearch Service**, ranks exact ingredient matches, enforces explicit must-haves, exclusions and price limits, rechecks canonical **Amazon DynamoDB** records, and selects up to three products per step.
+6. **Explanation and assembly.** Agents explain the fixed product lists. **Amazon Bedrock Guardrails** and structured-output validation screen model calls. Code revalidates the selected products and assembles the routine in its planned order, including explicit no-match steps. Progress and results stream back as server-sent events (SSE) through Lambda, API Gateway, and CloudFront to the browser.
+7. **Catalog updates.** A trusted publisher writes product records and outbox events to DynamoDB. A DynamoDB stream and **Amazon EventBridge** schedules drive catalog worker Lambda functions that project records into OpenSearch, and reconcile and maintain the index.
+8. **Build and monitoring.** **AWS CodeBuild** builds the agent image from source in S3 and pushes it to **Amazon ECR** for the runtime. **Amazon CloudWatch** supports API, WAF, build, runtime and catalog observability.
 
 The short [architecture guide](docs/architecture.md) describes the search rules and catalog boundaries.
 
