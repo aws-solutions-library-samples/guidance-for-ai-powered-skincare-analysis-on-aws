@@ -6,7 +6,7 @@
     - [Architecture](#architecture)
     - [How it works](#how-it-works)
     - [Cost](#cost)
-    - [Sample Cost Table](#sample-cost-table)
+    - [Cost Breakdown](#cost-breakdown)
 2. [Prerequisites](#prerequisites)
     - [Operating System](#operating-system)
     - [Third-party Tools](#third-party-tools)
@@ -53,49 +53,67 @@ The short [architecture guide](docs/architecture.md) describes the search rules 
 
 ### Cost
 
-You are responsible for the cost of the AWS services used while running this
-Guidance. The original **June 2026** estimate was approximately **$74 per month**
-for processing **1,000 skincare analyses** in **US East (N. Virginia) — `us-east-1`**.
+Estimated costs for one environment in **US East (N. Virginia) (`us-east-1`)**,
+using **730 hours/month**. Prices checked on **October 28, 2026**, in USD before
+taxes, discounts and credits. **Monthly cost = $368.34 base charges + usage below.**
+Free-tier allowances are shared with other eligible account usage.
 
-**This is the historical estimate for the earlier configuration.** It excludes
-the added private OpenSearch infrastructure, VPC endpoints and catalog workers,
-and uses the previous Sonnet 4.6 / Haiku 4.5 models. It must be recalculated for
-the current deployment.
+### Cost Breakdown
 
-Provisioned search nodes and VPC interface endpoints incur costs while idle.
-Model calls, catalog maintenance, storage and other usage add to those costs.
-Remove test environments when finished.
+**Base charges**
 
-We recommend creating a [Budget](https://docs.aws.amazon.com/cost-management/latest/userguide/budgets-managing-costs.html)
-through [AWS Cost Explorer](https://aws.amazon.com/aws-cost-management/aws-cost-explorer/)
-to help manage costs. Prices are subject to change.
+| AWS service | Default configuration | Monthly cost [USD] |
+| --- | --- | ---: |
+| [Amazon OpenSearch Service][cost-opensearch] — data nodes | 2 × `r6g.large.search` × 730 hours × $0.167/hour | $243.82 |
+| [Amazon OpenSearch Service][cost-opensearch] — gp3 storage | 2 × 30 GiB × $0.122/GB-month | $7.32 |
+| [AWS PrivateLink][cost-privatelink] — interface endpoints | 7 services × 2 Availability Zones × 730 hours × $0.01/hour | $102.20 |
+| [AWS WAF][cost-waf] — ACLs and rules | 2 web ACLs + 2 custom rules + 3 managed rule-group associations | $15.00 |
+| **Base subtotal** | **Excludes usage charges below** | **$368.34** |
 
-#### Original assumptions
+**Usage charges**
 
-- One selfie per analysis, with an assumed 1,568 image tokens.
-- Five routine steps on average.
-- Twelve model invocations: one Sonnet vision call, one Haiku planning call,
-  five Haiku ingredient calls and five Haiku product calls.
-- Approximately 60 seconds per analysis, with 70% spent waiting for model responses.
-
-### Sample Cost Table
-
-The original breakdown below covers one month and **1,000 skincare analyses**.
-Service rates and free-tier assumptions are those used in the June 2026 estimate.
-
-| AWS Service | Dimensions | Cost [USD] |
+| AWS service | Stack usage | Unit pricing [USD] |
 | --- | --- | --- |
-| Amazon Bedrock — Claude Sonnet 4.6 | 1,000 calls × 3,000 input tokens = 3.0M input tokens @ $3/MTok; 1,000 × 500 output tokens = 0.5M output tokens @ $15/MTok | $16.50 |
-| Amazon Bedrock — Claude Haiku 4.5 | 11,000 calls × ~1,550 avg input tokens = 17.1M input tokens @ $1/MTok; 11,000 × ~480 avg output tokens = 5.3M output tokens @ $5/MTok | $43.50 |
-| Amazon Bedrock AgentCore Runtime | 1,000 sessions × 60s; CPU active ~30% of time (70% I/O wait): $0.0895/vCPU-hr × 1 vCPU × 5 hrs active; Memory: $0.00945/GB-hr × 2 GB × 16.7 hrs total | $0.76 |
-| Amazon CloudFront | 10 GB data transfer + 50,000 HTTPS requests (within Always Free tier: 1 TB transfer + 10M requests/month) | $0.00 |
-| AWS WAF | 2 Web ACLs ($10) + 2 custom rules ($2) + 1 managed rule group ($1) + 55,000 requests @ $0.60/million ($0.03) | $13.03 |
-| Amazon API Gateway | 5,000 REST API calls @ $3.50/million | $0.02 |
-| Amazon DynamoDB | On-demand mode; ~22,000 read request units @ $0.125/million + ~1,000 write request units @ $0.625/million; <1 GB storage (within 25 GB free tier) | $0.01 |
-| Amazon S3 | <1 GB storage (frontend assets) @ $0.023/GB; 1,000 PUT + 5,000 GET requests | $0.03 |
-| Amazon Cognito | Up to 10,000 monthly active users (within free tier) | $0.00 |
-| Amazon ECR | <1 GB container image storage @ $0.10/GB | $0.10 |
-| **Total of listed monthly estimates** | | **~$73.95** |
+| [Amazon Bedrock — Claude Sonnet 5.5][cost-models] | Skin analysis | Global standard inference: $2/million input tokens; $10/million output tokens |
+| [Amazon Bedrock — Claude Haiku 5.5][cost-models] | Planning, ingredient selection and product explanations | Global standard inference: $0.10/million input tokens; $0.50/million output tokens |
+| [Amazon Bedrock Guardrails][cost-guardrails] | Content, topic and sensitive-information filters | Per 1,000 text units metered by each filter: $0.15 content; $0.15 topics; $0.10 sensitive information |
+| [Amazon Bedrock AgentCore Runtime][cost-agentcore] | Agent sessions | V1: $0.0895/vCPU-hour + $0.00945/GB-hour; memory includes idle session time |
+| [AWS Lambda][cost-lambda] — API proxy | 256 MB ARM streaming function | $0.0000133334/GB-second + $0.20/million requests; streaming-data charges may apply |
+| [AWS Lambda][cost-lambda] — catalog jobs | Three 512 MB x86 functions; 744,600 scheduled calls/month | $0.0000166667/GB-second + $0.20/million requests; maintenance compute alone ≈ $16.43/month at 45 seconds/call, before free tier |
+| [Amazon DynamoDB][cost-dynamodb] | Five tables, catalog operations and point-in-time recovery (PITR) | $0.125/million read units; $0.625/million write units; $0.25/GB-month storage beyond the available 25 GB allowance; $0.20/GB-month PITR |
+| [Amazon CloudWatch][cost-cloudwatch] | Eight alarms, dashboard, metrics, logs and traces | $0.10/standard alarm-month; $0.30/custom metric-month; $0.50/GB log ingestion; $0.03/GB-month log retention; dashboard and traces extra |
+| [AWS WAF][cost-waf] — requests | CloudFront and API inspection | $0.60/million requests per web ACL; both layers are metered |
+| [Amazon API Gateway][cost-apigateway] | REST API and streaming responses | $3.50/million billable requests; streaming billed in 10 MB increments, minimum one request |
+| [Amazon CloudFront][cost-cloudfront] | Frontend/API delivery and path-rewrite function | Available monthly allowance: 1 TB transfer, 10 million HTTP(S) requests and 2 million Function calls; regional rates thereafter |
+| [Amazon Cognito][cost-cognito] | Direct user sign-in | Available Lite/Essentials allowance: 10,000 monthly active users; tier rates thereafter |
+| [AWS PrivateLink][cost-privatelink] — data | Interface endpoint traffic | $0.01/GB for the first 1 PB; applicable data transfer extra |
+| [Amazon S3][cost-s3] | Assets, source, logs, versions and Terraform state | Standard: from $0.023/GB-month; $0.005/1,000 PUT-class requests; $0.0004/1,000 GET requests; other storage classes and transitions extra |
+| [Amazon ECR][cost-ecr] | Retained container images | $0.10/GB-month; applicable transfer extra |
+| [AWS CodeBuild][cost-codebuild] | ARM large image builds | $0.015/build minute |
+
+Usage depends on model tokens, session duration, catalog activity and retained
+data. Background jobs incur charges even without analyses. Runtime rates assume
+[AgentCore V1][cost-platform] with the default [900-second idle timeout][cost-session-lifetime].
+Apply shared free-tier allowances and applicable data transfer charges when
+estimating your deployment with the [AWS Pricing Calculator](https://calculator.aws/).
+
+[cost-opensearch]: https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonES/20261026173153/us-east-1/index.json
+[cost-privatelink]: https://aws.amazon.com/privatelink/pricing/
+[cost-waf]: https://aws.amazon.com/waf/pricing/
+[cost-models]: https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonBedrockFoundationModels/20261012084008/us-east-1/index.json
+[cost-guardrails]: https://aws.amazon.com/bedrock/pricing/
+[cost-agentcore]: https://aws.amazon.com/bedrock/agentcore/pricing/
+[cost-lambda]: https://aws.amazon.com/lambda/pricing/
+[cost-dynamodb]: https://aws.amazon.com/dynamodb/pricing/on-demand/
+[cost-cloudwatch]: https://aws.amazon.com/cloudwatch/pricing/
+[cost-apigateway]: https://aws.amazon.com/api-gateway/pricing/
+[cost-cloudfront]: https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/
+[cost-cognito]: https://aws.amazon.com/cognito/pricing/
+[cost-s3]: https://aws.amazon.com/s3/pricing/
+[cost-ecr]: https://aws.amazon.com/ecr/pricing/
+[cost-codebuild]: https://aws.amazon.com/codebuild/pricing/
+[cost-platform]: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-how-it-works.html#runtime-platform-versions
+[cost-session-lifetime]: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/runtime-lifecycle-settings.html
 
 ## Prerequisites
 
