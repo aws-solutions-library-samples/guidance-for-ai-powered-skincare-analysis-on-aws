@@ -55,6 +55,14 @@ FAST_MODEL_CONFIG = {
     },
 }
 
+# The nested ingredient output produced placeholders under native strict
+# decoding in live checks. Keep Converse tool use and local validation for
+# this stage.
+INGREDIENT_MODEL_CONFIG = {**FAST_MODEL_CONFIG, "strict_tools": False}
+# Repeated explanation checks also produced incomplete lists and empty text
+# under strict decoding. Reuse validated Converse tool output for this stage.
+EXPLANATION_MODEL_CONFIG = {**FAST_MODEL_CONFIG, "strict_tools": False}
+
 
 def get_model() -> BedrockModel:
     """Get configured Bedrock model instance (primary, most capable)."""
@@ -68,6 +76,16 @@ def get_fast_model() -> BedrockModel:
     """Get fast Bedrock model instance (Haiku — for simple tasks)."""
     logger.info("Using fast model: %s (%s)", FAST_MODEL, AVAILABLE_MODELS[FAST_MODEL])
     return GuardedBedrockModel(**FAST_MODEL_CONFIG, **_guardrail_config())
+
+
+def get_ingredient_model() -> BedrockModel:
+    """Return the ingredient-stage model with validated Converse tool output."""
+    return GuardedBedrockModel(**INGREDIENT_MODEL_CONFIG, **_guardrail_config())
+
+
+def get_explanation_model() -> BedrockModel:
+    """Return the explanation model with validated Converse tool output."""
+    return GuardedBedrockModel(**EXPLANATION_MODEL_CONFIG, **_guardrail_config())
 
 
 def _guardrail_config() -> dict:

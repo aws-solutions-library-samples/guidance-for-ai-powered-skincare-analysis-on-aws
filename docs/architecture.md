@@ -19,6 +19,12 @@ OpenSearch runs in private subnets; DynamoDB holds authoritative product records
 Step-specific chains run concurrently. Progress arrives through Server-Sent Events;
 a disconnected or failed stream is not a completed routine.
 
+The explanation input reuses the structured plan and ingredient outputs. Code
+joins each selected product's exact matched IDs to its ingredient reasoning and
+attaches the routine's timing and order. It excludes unmatched ingredient
+reasoning and prefilled fallback text. The explanation agent writes the final
+wording; ingredient-level usage notes do not establish product-specific directions.
+
 ## Exact ingredient search
 
 Names resolve through an explicit ingredient registry. Normalization handles

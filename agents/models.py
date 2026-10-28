@@ -2,8 +2,8 @@
 
 from typing import Literal, Self
 
-from pydantic import BaseModel, Field, model_validator
-from .search.contracts import Preferences
+from pydantic import BaseModel, Field, field_validator, model_validator
+from .search.contracts import Identifier, Preferences
 
 
 class SkinMetrics(BaseModel):
@@ -112,11 +112,18 @@ class StepAnalysisResult(BaseModel):
 class IngredientDetail(BaseModel):
     """A single ingredient recommendation with personalized context."""
 
-    ingredient_id: str = Field(default="", max_length=128, description="Canonical ingredient ID returned by an ingredient tool")
+    ingredient_id: Identifier = Field(description="Canonical ingredient ID returned by an ingredient tool")
     name: str = Field(description="Display name of that exact ingredient identity")
-    benefit: str = Field(description="Primary benefit/function")
+    benefit: str = Field(min_length=1, description="Primary benefit/function")
     why_for_you: str = Field(description="Personalized explanation for this user")
     usage: str = Field(description="Concentration, frequency, and usage notes")
+
+    @field_validator("benefit")
+    @classmethod
+    def benefit_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Ingredient benefit must not be blank")
+        return value
 
 
 class IngredientsAnalysisOutput(BaseModel):
@@ -171,8 +178,15 @@ class ProductAnalysisOutput(BaseModel):
 
 class ProductExplanation(BaseModel):
     product_id: str = Field(min_length=1, max_length=128)
-    why_for_you: str = Field(max_length=1500)
-    usage_tip: str = Field(max_length=1000)
+    why_for_you: str = Field(min_length=1, max_length=1500)
+    usage_tip: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("why_for_you", "usage_tip")
+    @classmethod
+    def explanation_is_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Product explanation text must not be blank")
+        return value
 
 
 class ProductExplanations(BaseModel):

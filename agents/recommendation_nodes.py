@@ -9,7 +9,7 @@ from typing import Any
 from strands.agent.agent_result import AgentResult
 from strands.multiagent.base import MultiAgentBase, MultiAgentResult, NodeResult, Status
 
-from .catalog_binding import render_products
+from .catalog_binding import explanation_input, render_products
 from .errors import AnalysisFailure
 from .models import IngredientsAnalysisOutput, ProductExplanations
 
@@ -71,11 +71,10 @@ class ProductSelectionNode(MultiAgentBase):
         explanation = None
         currencies = state["product_service"].config.currency_minor_units
         if result.products:
-            facts = render_products(result, names, currency_minor_units=currencies)
-            prompt = json.dumps({
-                "user_profile": state["step_analysis_data"].user_profile.model_dump(),
-                "approved_products": facts.model_dump(),
-            })
+            prompt = json.dumps(explanation_input(
+                result, ingredients, state["step_analysis_data"],
+                currency_minor_units=currencies,
+            ))
             try:
                 response = await asyncio.wait_for(
                     self.agent.invoke_async(prompt, invocation_state=state), timeout=EXPLANATION_DEADLINE_SECONDS,

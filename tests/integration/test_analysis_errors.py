@@ -91,8 +91,10 @@ def test_sdk_wrapped_provider_errors_keep_their_category(provider_code, public_c
     assert "private" not in str(classify_error(wrapped))
 
 
-@pytest.mark.parametrize("factory", [config.get_model, config.get_fast_model])
-def test_both_model_factories_wire_guardrail_and_fail_on_partial_config(monkeypatch, factory):
+@pytest.mark.parametrize("factory", [
+    config.get_model, config.get_fast_model, config.get_ingredient_model, config.get_explanation_model,
+])
+def test_model_factories_wire_guardrail_and_fail_on_partial_config(monkeypatch, factory):
     constructor = Mock()
     monkeypatch.setattr(config, "GuardedBedrockModel", constructor)
     monkeypatch.setenv("GUARDRAIL_ID", "configured-id")
