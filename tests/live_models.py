@@ -162,7 +162,7 @@ def run(args, report):
 
     def catalog_contract():
         # This contract runs on the operator's machine over the public regional
-        # API. The application's 50/100 ms VPC transport limits are qualified
+        # API. The application's 250/100 ms VPC transport limits are qualified
         # separately by the native probe; do not apply them to an internet hop.
         # CatalogMetadata still enforces its normal overall budget and bounds.
         transport = {"connect_timeout": 0.5, "read_timeout": 0.5}
