@@ -53,10 +53,16 @@ The short [architecture guide](docs/architecture.md) describes the search rules 
 
 ### Cost
 
-Estimated costs for one environment in **US East (N. Virginia) (`us-east-1`)**,
-using **730 hours/month**. Prices checked on **October 28, 2026**, in USD before
-taxes, discounts and credits. **Monthly cost = $368.34 base charges + usage below.**
-Free-tier allowances are shared with other eligible account usage.
+You are responsible for the cost of the AWS services used while running this
+Guidance. As of October 2026, the cost for running this Guidance with the default
+settings in the US East (N. Virginia) (`us-east-1`) Region is approximately
+**$368.34 per month** in base charges, plus the usage charges below.
+
+Estimates are for one environment, using **730 hours/month**, in USD before taxes,
+discounts and credits. Free-tier allowances are shared with other eligible account
+usage. We recommend creating a Budget through AWS Cost Explorer to help manage
+costs. Prices are subject to change. For full details, refer to the pricing webpage
+for each AWS service used in this Guidance.
 
 ### Cost Breakdown
 
@@ -95,7 +101,7 @@ Usage depends on model tokens, session duration, catalog activity and retained
 data. Background jobs incur charges even without analyses. Runtime rates assume
 [AgentCore V1][cost-platform] with the default [900-second idle timeout][cost-session-lifetime].
 Apply shared free-tier allowances and applicable data transfer charges when
-estimating your deployment with the [AWS Pricing Calculator](https://calculator.aws/).
+estimating your deployment.
 
 [cost-opensearch]: https://pricing.us-east-1.amazonaws.com/offers/v1.0/aws/AmazonES/20261026173153/us-east-1/index.json
 [cost-privatelink]: https://aws.amazon.com/privatelink/pricing/
