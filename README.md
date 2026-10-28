@@ -28,8 +28,6 @@ This Guidance demonstrates how to build a personalized skincare analysis applica
 
 The multi-agent system is orchestrated as a directed graph using the [Strands Agents SDK](https://github.com/strands-agents/sdk-python) and runs on Amazon Bedrock AgentCore Runtime. Specialized agents handle skin analysis, routine planning, ingredient selection, and explanations. Exact ingredient matching uses a private OpenSearch index, with DynamoDB as the authoritative catalog. Progress and intermediate results stream to the frontend via Server-Sent Events (SSE).
 
-**Product search uses no embeddings or semantic similarity.**
-
 ### Architecture
 
 ![Reference architecture showing the web application, authentication, streaming Lambda proxy, AgentCore agents and Amazon OpenSearch Service product search in a private VPC, catalog ingestion, and build pipeline.](assets/images/architecture.png)
