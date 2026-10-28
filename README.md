@@ -362,6 +362,10 @@ The `prod` Cognito pool also has deletion protection enabled. Disable that prote
 
 **Shared resources remain:** `terraform/shared/` owns account-level API Gateway logging configuration, and the state bucket and lock table are retained. Keep them while any environment or other API depends on them. Only after every environment is removed and account-level dependencies are reviewed should the shared stack be destroyed and remote state retired. If bucket versioning has been enabled, deleting current objects alone does not remove stored versions. Keep state backups until teardown is verified; do not delete the state bucket first.
 
+AgentCore can retain its VPC network interfaces for
+[up to eight hours after runtime deletion](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agentcore-vpc.html).
+If network deletion times out, rerun cleanup after those interfaces are released.
+
 ## FAQ, Known Issues, Additional Considerations, and Limitations
 
 **Q: Deployment fails at the CodeBuild step.**

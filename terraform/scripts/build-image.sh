@@ -29,14 +29,53 @@ fi
 echo "Starting CodeBuild project: $PROJECT_NAME"
 echo "Target: $REPO_URL:$IMAGE_TAG"
 
-# Start the build
-BUILD_ID=$(aws codebuild start-build \
-  --project-name "$PROJECT_NAME" \
-  --region "$REGION" \
-  --query 'build.id' \
-  --output text)
+start_build() {
+  BUILD_ID=$(aws codebuild start-build \
+    --project-name "$PROJECT_NAME" \
+    --region "$REGION" \
+    --query 'build.id' \
+    --output text)
+  echo "Build started: $BUILD_ID"
+}
 
-echo "Build started: $BUILD_ID"
+# IAM policy creation can finish before CodeBuild observes the new grant.
+# Retry only the observed pre-execution log-stream failure, never explicit
+# denies or failures after a build phase has started.
+retryable_startup_failure() {
+  local phase_details
+  phase_details=$(aws codebuild batch-get-builds \
+    --ids "$BUILD_ID" --region "$REGION" \
+    --query 'builds[0].phases' --output json) || return 1
+  printf '%s\n' "$phase_details" | python3 -c '
+import json, sys
+try:
+    phases = json.load(sys.stdin)
+except (ValueError, TypeError):
+    sys.exit(1)
+if not isinstance(phases, list) or not phases or any(
+    not isinstance(p, dict) or p.get("phaseType") not in ("SUBMITTED", "QUEUED", "COMPLETED")
+    for p in phases
+):
+    sys.exit(1)
+retryable = any(
+    p.get("phaseType") == "QUEUED" and p.get("phaseStatus") == "CLIENT_ERROR"
+    and any(
+        isinstance(c, dict) and c.get("statusCode") == "ACCESS_DENIED"
+        and isinstance(c.get("message"), str)
+        and "logs:CreateLogStream" in c["message"]
+        and "because no identity-based policy allows" in c["message"]
+        and "explicit deny" not in c["message"].lower()
+        for c in (p.get("contexts") or [])
+    )
+    for p in phases
+)
+sys.exit(0 if retryable else 1)
+'
+}
+
+BUILD_ATTEMPT=1
+MAX_BUILD_ATTEMPTS=4
+start_build
 
 # Poll for completion
 while true; do
@@ -56,6 +95,14 @@ while true; do
       break
       ;;
     FAILED|FAULT|STOPPED|TIMED_OUT)
+      if [ "$STATUS" = "FAILED" ] && [ "$BUILD_ATTEMPT" -lt "$MAX_BUILD_ATTEMPTS" ] && retryable_startup_failure; then
+        RETRY_DELAY=$((10 * (1 << (BUILD_ATTEMPT - 1))))
+        echo "CodeBuild log permission not yet available; retrying startup in ${RETRY_DELAY}s"
+        sleep "$RETRY_DELAY"
+        BUILD_ATTEMPT=$((BUILD_ATTEMPT + 1))
+        start_build
+        continue
+      fi
       echo "Build failed with status: $STATUS"
       # Show build logs hint
       echo "Check logs: aws codebuild batch-get-builds --ids $BUILD_ID --region $REGION"

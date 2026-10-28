@@ -18,6 +18,7 @@ from decimal import Decimal
 from pathlib import Path
 
 import boto3
+from botocore.config import Config
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -82,13 +83,20 @@ def migrate(args):
     control = ControlStore(client, args.metadata_table, config.catalog_id)
     publisher = CatalogPublisher(client, products_table=args.products_table, outbox_table=args.outbox_table, control=control)
     if args.admin_function:
-        admin_client = boto3.Session().client("lambda")
+        # The admin function can run for 300 seconds, including bounded lease
+        # waits. Do not time out or duplicate the synchronous invocation early.
+        admin_client = boto3.Session().client("lambda", config=Config(
+            connect_timeout=10, read_timeout=310, retries={"total_max_attempts": 1},
+        ))
         response = admin_client.invoke(
             FunctionName=args.admin_function, Payload=json.dumps({"action": "initialize"}).encode(),
         )
+        try:
+            response["Payload"].read()
+        finally:
+            response["Payload"].close()
         if response.get("FunctionError"):
             raise RuntimeError("Catalog initialization failed; inspect the admin function logs")
-        response["Payload"].read()
     source = control.get("SOURCE")
     populated = any(source_watermarks(control).values())
     if args.demo_if_empty and populated and source_is_healthy(source):
