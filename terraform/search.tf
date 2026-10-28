@@ -1,14 +1,26 @@
 # Private exact-ingredient search. Engine is pinned to a managed-service release.
 # Size and throughput require workload-specific capacity testing.
+data "aws_availability_zones" "search" {
+  state = "available"
+
+  # Exclude Local Zones and other opt-in zones.
+  filter {
+    name   = "opt-in-status"
+    values = ["opt-in-not-required"]
+  }
+}
+
 locals {
   search_config      = jsondecode(file("${path.module}/../data/search-config.json"))
   search_domain_name = "${local.prefix}-search"
   catalog_roles      = toset(["worker", "maintenance", "admin"])
-  agentcore_az_ids = {
-    us-east-1 = ["use1-az1", "use1-az2"]
-    us-west-2 = ["usw2-az1", "usw2-az2"]
-    eu-west-1 = ["euw1-az1", "euw1-az2"]
-  }
+  # Stable IDs avoid account-specific AZ name ordering. Bound the slice so the
+  # subnet precondition can report insufficient zones without an index error.
+  search_zone_ids = var.search_availability_zone_ids != null ? var.search_availability_zone_ids : slice(
+    sort(data.aws_availability_zones.search.zone_ids),
+    0,
+    min(2, length(data.aws_availability_zones.search.zone_ids)),
+  )
 }
 
 resource "aws_vpc" "search" {
@@ -21,8 +33,17 @@ resource "aws_subnet" "search" {
   count                   = 2
   vpc_id                  = aws_vpc.search.id
   cidr_block              = cidrsubnet(aws_vpc.search.cidr_block, 8, count.index)
-  availability_zone_id    = local.agentcore_az_ids[var.aws_region][count.index]
+  availability_zone_id    = try(local.search_zone_ids[count.index], null)
   map_public_ip_on_launch = false
+
+  lifecycle {
+    precondition {
+      condition = length(local.search_zone_ids) == 2 && alltrue([
+        for zone_id in local.search_zone_ids : try(contains(data.aws_availability_zones.search.zone_ids, zone_id), false)
+      ])
+      error_message = "The deployment requires two enabled standard Availability Zones in ${var.aws_region}. Set search_availability_zone_ids to a compatible pair."
+    }
+  }
 }
 
 resource "aws_route_table" "search" {

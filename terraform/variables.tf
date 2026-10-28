@@ -1,12 +1,7 @@
 variable "aws_region" {
-  description = "AWS region for deployment. This project supports us-east-1, us-west-2, and eu-west-1."
+  description = "AWS region for deployment. Required services, model profiles and compatible Availability Zones must be available in this region."
   type        = string
   default     = "us-east-1"
-
-  validation {
-    condition     = contains(["us-east-1", "us-west-2", "eu-west-1"], var.aws_region)
-    error_message = "This project supports deployments in us-east-1, us-west-2, and eu-west-1."
-  }
 }
 
 variable "environment" {
@@ -91,6 +86,21 @@ variable "search_volume_gib" {
   validation {
     condition     = var.search_volume_gib >= 20 && floor(var.search_volume_gib) == var.search_volume_gib
     error_message = "search_volume_gib must be an integer of at least 20."
+  }
+}
+
+variable "search_availability_zone_ids" {
+  description = "Optional ordered pair of standard Availability Zone IDs for search and AgentCore. Defaults to the first two enabled zones, sorted by ID."
+  type        = list(string)
+  default     = null
+
+  validation {
+    condition = var.search_availability_zone_ids == null ? true : (
+      length(var.search_availability_zone_ids) == 2 &&
+      length(distinct(var.search_availability_zone_ids)) == 2 &&
+      alltrue([for zone_id in var.search_availability_zone_ids : try(trimspace(zone_id) != "", false)])
+    )
+    error_message = "search_availability_zone_ids must be null or contain exactly two distinct, non-empty Availability Zone IDs."
   }
 }
 

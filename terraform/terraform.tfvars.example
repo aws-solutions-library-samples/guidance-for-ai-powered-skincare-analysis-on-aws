@@ -1,6 +1,11 @@
 # Optional local overrides. Copy to terraform.tfvars and fill in your values.
 # Deployment scripts choose region from AWS_REGION or your AWS CLI profile.
 
+# Optional ordered pair of AgentCore-compatible Availability Zone IDs.
+# By default, the first two enabled standard zones are selected by sorted ID.
+# For an existing deployment, preserve its subnet zone IDs and their order.
+# search_availability_zone_ids = ["use1-az1", "use1-az2"]
+
 # Custom domain (certificate must be in us-east-1)
 # custom_domain       = "beauty.example.com"
 # acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."

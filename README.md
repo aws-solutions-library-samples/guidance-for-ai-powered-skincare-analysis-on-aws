@@ -127,15 +127,22 @@ These deployment instructions are optimized for **macOS** or **Amazon Linux 2023
 
 ### Supported Regions
 
-This Guidance uses Amazon Bedrock cross-region inference and must be deployed in one of the following regions:
+Choose the deployment region through `AWS_REGION` or your AWS CLI profile;
+`us-east-1` is the default. Terraform does not impose a region allowlist.
+The selected region must support the required AWS services, the configured
+Bedrock model profiles and your account's quotas.
 
-| Region | Region Code |
-| --- | --- |
-| US East (N. Virginia) | `us-east-1` **(default)** |
-| US West (Oregon) | `us-west-2` |
-| Europe (Ireland) | `eu-west-1` |
+Terraform discovers enabled standard Availability Zones and selects the first
+two sorted by zone ID. Check that this pair is listed in
+[AgentCore's supported Availability Zones](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agentcore-vpc.html).
+If necessary, set `search_availability_zone_ids` in `terraform/terraform.tfvars`
+to an ordered pair of compatible IDs. For an existing deployment, preserve its
+current subnet zone IDs and order to avoid replacing subnets.
 
-These are the regions accepted by the Terraform configuration. Validate model availability and account quotas in the selected region before deployment. The default models use **global** inference profiles, so inference can run outside the deployment region; see [global cross-region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html).
+The default models use **global** inference profiles, so inference can run outside
+the deployment region; see [global cross-region inference](https://docs.aws.amazon.com/bedrock/latest/userguide/global-cross-region-inference.html).
+CloudFront certificates and WAF, plus the deployment's Terraform state resources,
+still require access to `us-east-1`.
 
 ## Deployment Steps
 
@@ -300,6 +307,8 @@ make validate
 ```
 
 Tests use mocked AWS boundaries unless you explicitly run a live checker.
+With Terraform 1.7+, run the offline region-selection checks with
+`terraform -chdir=terraform test -filter=tests/regions.tftest.hcl`.
 
 | Path | Purpose |
 | --- | --- |
@@ -352,7 +361,7 @@ A: `make bootstrap` (also run by `make deploy`) reuses the account's existing st
 - Application code processes photos in memory and does not write them to the product database or an image bucket. Review managed-service logging and retention separately. Re-analysis requires supplying photos again.
 - Production security, catalog scale, sustained throughput and recommendation quality still require validation for your workload.
 - The pinned AWS telemetry dependency is affected by an [OpenTelemetry advisory](https://github.com/advisories/GHSA-xcq7-p3pf-p88h).
-- Terraform accepts `us-east-1`, `us-west-2`, and `eu-west-1`; global model inference is not confined to the deployment region.
+- Global model inference is not confined to the deployment region.
 - Self-registration is disabled by design. Users must be created by an administrator via `make create-user` or the Cognito console.
 
 **Additional considerations:**
