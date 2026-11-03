@@ -175,8 +175,8 @@ still require access to `us-east-1`.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws.git
-cd guidance-for-smart-beauty-on-aws
+git clone https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws.git
+cd guidance-for-ai-powered-skincare-analysis-on-aws
 ```
 
 ### 2. Run initial setup
@@ -417,7 +417,7 @@ A: `make bootstrap` (also run by `make deploy`) reuses the account's existing st
 - Provisioned search nodes and private endpoints incur costs while idle; model calls and other usage add to them.
 - The AgentCore container image is built via CodeBuild when the packaged source hash changes.
 
-For feedback, questions, or suggestions, please use the [Issues](https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws/issues) tab in this repository.
+For feedback, questions, or suggestions, please use the [Issues](https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws/issues) tab in this repository.
 Report security concerns through [SECURITY.md](SECURITY.md).
 
 ## Revisions
