@@ -3,7 +3,10 @@
 import re
 from decimal import Decimal
 
-from .models import ProductAnalysisOutput, ProductDetail, ProductExplanations
+from .models import (
+    IngredientsAnalysisOutput, ProductAnalysisOutput, ProductDetail,
+    ProductExplanations, StepAnalysisResult,
+)
 from .search.contracts import SearchResult
 
 
@@ -13,6 +16,46 @@ def safe_product_image(value: object) -> str:
     ):
         return value
     return ""
+
+
+def explanation_input(
+    result: SearchResult, ingredients: IngredientsAnalysisOutput, plan: StepAnalysisResult,
+    *, currency_minor_units: dict[str, int] | None = None,
+) -> dict:
+    """Join existing structured reasoning to each product's exact matches."""
+    category = result.request.category_id
+    steps = [step for step in plan.routine_steps if step.step_name == category]
+    details = {item.ingredient_id: item for item in ingredients.key_ingredients}
+    if (
+        ingredients.step_name != category or len(steps) != 1
+        or len(details) != len(ingredients.key_ingredients)
+    ):
+        raise ValueError("Explanation context does not match the selected step")
+    if any(set(item.matched_ingredient_ids) - details.keys() for item in result.products):
+        raise ValueError("Selected ingredient has no matching explanation context")
+    facts = render_products(
+        result, {key: item.name for key, item in details.items()},
+        currency_minor_units=currency_minor_units,
+    ).model_dump(mode="json", exclude={
+        "top_recommendations": {"__all__": {"why_for_you", "usage_tip"}},
+    })
+    for product in facts["top_recommendations"]:
+        product["matched_ingredient_reasoning"] = [
+            details[identifier].model_dump(mode="json")
+            for identifier in product["matched_ingredient_ids"]
+        ]
+    return {
+        "user_profile": plan.user_profile.model_dump(mode="json"),
+        "routine_context": {
+            "current_step": steps[0].model_dump(mode="json"),
+            "ordered_steps": [
+                step.model_dump(mode="json", include={"step_name", "when"})
+                for step in plan.routine_steps
+            ],
+            "summary": plan.routine_summary.model_dump(mode="json"),
+        },
+        "approved_products": facts,
+    }
 
 
 def render_products(

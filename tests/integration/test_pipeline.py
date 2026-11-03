@@ -117,6 +117,36 @@ def test_request_to_final_wire_result(pipeline, request_payload):
     assert json.loads(json.dumps(events)) == events
 
 
+def test_existing_structured_context_reaches_each_explanation_once(
+    pipeline, request_payload, routine_state, monkeypatch,
+):
+    original_factory = orchestration.create_product_agent
+    agents = {}
+
+    def capture(category):
+        agents[category] = original_factory(category)
+        return agents[category]
+
+    monkeypatch.setattr(orchestration, "create_product_agent", capture)
+    events = asyncio.run(collect(request_payload))
+    assert validate_events(events) == []
+    plan = StepAnalysisResult.model_validate(routine_state["step_analysis_data"])
+    for step in plan.routine_steps:
+        agent = agents[step.step_name]
+        agent.invoke_async.assert_awaited_once()
+        context = json.loads(agent.invoke_async.call_args.args[0])
+        assert context["routine_context"]["current_step"] == step.model_dump(mode="json")
+        approved = context["approved_products"]["top_recommendations"]
+        assert [item["product_id"] for item in approved] == [f"id-{step.step_name}"]
+        assert approved[0]["matched_ingredient_reasoning"] == [
+            item.model_dump(mode="json")
+            for item in routine_state["ingredients_outputs"][f"ingredients_{step.step_name}"].key_ingredients
+        ]
+        assert "usage_tip" not in approved[0] and "why_for_you" not in approved[0]
+    # Internal context must not accidentally extend the public SSE schema.
+    assert "matched_ingredient_reasoning" not in json.dumps(events)
+
+
 @pytest.mark.parametrize("empty_categories", [("Sunscreen",), ("Cleanser", "Sunscreen")])
 def test_v2_mixed_and_all_no_match_finish_through_the_real_graph(pipeline, request_payload, empty_categories):
     original = pipeline.product_service.client.search.side_effect

@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 import time
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import boto3
 from botocore.config import Config
@@ -21,11 +22,14 @@ from strands import Agent
 
 import config
 from agents.guarded_model import GuardedBedrockModel
+from agents.ingredients_analysis_agent import create_ingredients_agent
 from agents.models import (
     IngredientsAnalysisOutput, ProductExplanations, SkinProfile, StepAnalysisResult,
 )
 from agents.search.catalog import CatalogMetadata
 from agents.search.clients import DynamoReads
+from agents.product_repository import ProductService
+from agents.search.contracts import Preferences
 from agents.tools import get_available_ingredients_for_step, resolve_ingredient_names
 from tests.live_release import require, validate_target
 
@@ -72,8 +76,8 @@ def fixtures():
     return [
         (SkinProfile, profile, config.MODEL_CONFIG),
         (StepAnalysisResult, plan, config.FAST_MODEL_CONFIG),
-        (IngredientsAnalysisOutput, ingredients, config.FAST_MODEL_CONFIG),
-        (ProductExplanations, products, config.FAST_MODEL_CONFIG),
+        (IngredientsAnalysisOutput, ingredients, config.INGREDIENT_MODEL_CONFIG),
+        (ProductExplanations, products, config.EXPLANATION_MODEL_CONFIG),
     ]
 
 
@@ -96,7 +100,10 @@ def run(args, report):
     report["account"] = caller["Account"]
     report["region"] = outputs["aws_region"]
     report["guardrail"] = guardrail
-    report["settings"] = [config.MODEL_CONFIG, config.FAST_MODEL_CONFIG]
+    report["settings"] = [
+        config.MODEL_CONFIG, config.FAST_MODEL_CONFIG,
+        config.INGREDIENT_MODEL_CONFIG, config.EXPLANATION_MODEL_CONFIG,
+    ]
 
     def model(settings):
         options = {key: value for key, value in settings.items() if key != "region_name"}
@@ -129,9 +136,12 @@ def run(args, report):
                 "Call the structured output tool with the supplied JSON unchanged.",
             )
             result = agent(json.dumps(value), limits={"turns": 4})
-            require(result.structured_output == schema.model_validate(value), "Fixture changed")
+            expected = schema.model_validate(value)
+            actual = result.structured_output
+            require(actual == expected, f"Fixture changed: expected {expected!r}; received {actual!r}")
             return {"usage": result.metrics.accumulated_usage}
-        check(f"strict_{schema.__name__}", output_contract)
+        mode = "strict" if settings["strict_tools"] else "validated"
+        check(f"{mode}_{schema.__name__}", output_contract)
 
     for settings in (config.MODEL_CONFIG, config.FAST_MODEL_CONFIG):
         def retry_contract(settings=settings):
@@ -162,7 +172,7 @@ def run(args, report):
 
     def catalog_contract():
         # This contract runs on the operator's machine over the public regional
-        # API. The application's 50/100 ms VPC transport limits are qualified
+        # API. The application's 250/100 ms VPC transport limits are qualified
         # separately by the native probe; do not apply them to an internet hop.
         # CatalogMetadata still enforces its normal overall budget and bounds.
         transport = {"connect_timeout": 0.5, "read_timeout": 0.5}
@@ -207,6 +217,48 @@ def run(args, report):
         require(result.structured_output == ContractAnswer(answer="ready"), "No final output")
         return {"usage": result.metrics.accumulated_usage}
     check("native_ingredient_tools_and_tool_results", catalog_contract)
+
+    def production_ingredient_contract():
+        metadata = CatalogMetadata(
+            DynamoReads(session.client("dynamodb", config=Config(
+                connect_timeout=0.5, read_timeout=0.5, retries={"total_max_attempts": 1},
+            ))), table_name=outputs["catalog_metadata_table_name"],
+            catalog_id=runtime_settings["CATALOG_ID"],
+        )
+        service = SimpleNamespace(metadata=metadata, config=metadata.configuration())
+        category = "Cleanser"
+        require(category in service.config.categories, "Test catalog needs a Cleanser category")
+        state = {"product_service": service, "preferences": Preferences()}
+        # Exercise the real prompt and factory while binding this local probe
+        # to the explicitly selected deployment's live model and guardrail.
+        with patch("agents.ingredients_analysis_agent.get_ingredient_model",
+                   return_value=model(config.INGREDIENT_MODEL_CONFIG)):
+            agent = create_ingredients_agent(category)
+        result = agent(json.dumps({
+            "user_profile": fixtures()[1][1]["user_profile"],
+            "routine_steps": [{
+                "step_name": category, "justification": "Basic care",
+                "why_this_step_for_you": "Maintain comfort", "when": "Morning",
+            }],
+        }), invocation_state=state, limits={"turns": 6})
+        require(not state.get("tool_errors"), "Catalog tool reported an error")
+        require(1 <= state.get("discovery_calls", {}).get(f"ingredients_{category}", 0) <= 3,
+                "Ingredient discovery must use the bounded catalog tools")
+        validated = ProductService.validate_ingredients(
+            service, result.structured_output, category, Preferences(),
+        )
+        require(all(
+            text.strip().lower() not in {"", "x", "placeholder"}
+            for item in validated.key_ingredients
+            for text in (item.benefit, item.why_for_you, item.usage)
+        ), "Ingredient narrative must not be blank or a placeholder")
+        return {
+            "usage": result.metrics.accumulated_usage,
+            "model_id": config.INGREDIENT_MODEL_CONFIG["model_id"],
+            "strict_tools": config.INGREDIENT_MODEL_CONFIG["strict_tools"],
+            "selected_ingredient_ids": [item.ingredient_id for item in validated.key_ingredients],
+        }
+    check("production_ingredient_selection", production_ingredient_contract)
 
 
 def main():

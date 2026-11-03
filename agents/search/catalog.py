@@ -7,6 +7,7 @@ from typing import Literal
 from pydantic import Field
 
 from .budget import SearchBudget
+from .clients import single_attempt_timeout
 from .contracts import Contract, Identifier, IndexReadiness, SearchConfiguration
 from .errors import InvalidSearchResponse, SearchUnavailable
 from .repository import native_numbers
@@ -48,6 +49,9 @@ class CatalogMetadata:
         self.resource = resource
         self.table_name = table_name
         self.catalog_id = catalog_id
+        self.call_timeout = single_attempt_timeout(resource)
+        if self.call_timeout > 1.2:
+            raise ValueError("Catalog transport exceeds the search deadline")
 
     def values(self, keys: tuple[str, ...], budget: SearchBudget | None = None) -> dict:
         if len(keys) > 100 or len(set(keys)) != len(keys):
@@ -58,7 +62,7 @@ class CatalogMetadata:
         pending = set(keys)
         result = {}
         while pending:
-            budget.require(0.150)
+            budget.require(self.call_timeout)
             try:
                 response = self.resource.batch_get_item(RequestItems={
                     self.table_name: {

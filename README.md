@@ -145,6 +145,12 @@ These deployment instructions are optimized for **macOS** or **Amazon Linux 2023
   Model settings are defined in `config.py`; the Terraform model allowlist in
   `terraform/iam.tf` must remain consistent with those settings.
 
+Agents use Bedrock Converse streaming and guardrails. Native strict output is
+enabled for skin analysis and routine planning. Ingredient selection and product
+explanations use standard Converse tool output with Pydantic and catalog-ID
+validation because repeated live tests found incomplete or incorrect content
+with strict decoding for those nested schemas.
+
 ### Supported Regions
 
 Choose the deployment region through `AWS_REGION` or your AWS CLI profile;
@@ -169,8 +175,8 @@ still require access to `us-east-1`.
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws.git
-cd guidance-for-smart-beauty-on-aws
+git clone https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws.git
+cd guidance-for-ai-powered-skincare-analysis-on-aws
 ```
 
 ### 2. Run initial setup
@@ -257,6 +263,11 @@ catalog. Optional live checks are available through
 `uv run --locked python -m tests.live_release --help` and
 `uv run --locked python -m tests.live_models --help`. They require explicit
 test-account and execution options and can incur AWS charges.
+
+For synthetic-profile explanation checks, use
+`uv run --locked python -m tests.live_explanations --help`. Review the generated
+wording as well as the mechanical checks; those checks do not establish
+personalization quality or the correctness of every generated claim.
 
 ## Running the Guidance
 
@@ -362,6 +373,10 @@ The `prod` Cognito pool also has deletion protection enabled. Disable that prote
 
 **Shared resources remain:** `terraform/shared/` owns account-level API Gateway logging configuration, and the state bucket and lock table are retained. Keep them while any environment or other API depends on them. Only after every environment is removed and account-level dependencies are reviewed should the shared stack be destroyed and remote state retired. If bucket versioning has been enabled, deleting current objects alone does not remove stored versions. Keep state backups until teardown is verified; do not delete the state bucket first.
 
+AgentCore can retain its VPC network interfaces for
+[up to eight hours after runtime deletion](https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/agentcore-vpc.html).
+If network deletion times out, rerun cleanup after those interfaces are released.
+
 ## FAQ, Known Issues, Additional Considerations, and Limitations
 
 **Q: Deployment fails at the CodeBuild step.**
@@ -377,6 +392,10 @@ A: Camera access requires a secure context (HTTPS). CloudFront serves over HTTPS
 A: `make bootstrap` (also run by `make deploy`) reuses the account's existing state bucket and lock table. `make setup` only installs local dependencies.
 
 **Known limitations:**
+
+- Products without catalog photographs use bundled, AI-generated category
+  illustrations marked **Illustrative image**. These do not depict the named
+  products. See [product image guidance](docs/product-images.md) to replace them.
 
 - Application code processes photos in memory and does not write them to the product database or an image bucket. Review managed-service logging and retention separately. Re-analysis requires supplying photos again.
 - Production security, catalog scale, sustained throughput and recommendation quality still require validation for your workload.
@@ -398,7 +417,7 @@ A: `make bootstrap` (also run by `make deploy`) reuses the account's existing st
 - Provisioned search nodes and private endpoints incur costs while idle; model calls and other usage add to them.
 - The AgentCore container image is built via CodeBuild when the packaged source hash changes.
 
-For feedback, questions, or suggestions, please use the [Issues](https://github.com/aws-solutions-library-samples/guidance-for-smart-beauty-on-aws/issues) tab in this repository.
+For feedback, questions, or suggestions, please use the [Issues](https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws/issues) tab in this repository.
 Report security concerns through [SECURITY.md](SECURITY.md).
 
 ## Revisions

@@ -1,5 +1,6 @@
 """Native IAM clients with verified TLS, private endpoints and bounded retries."""
 
+import math
 from urllib.parse import urlsplit
 from decimal import Decimal
 from types import SimpleNamespace
@@ -8,6 +9,26 @@ import boto3
 from boto3.dynamodb.types import TypeDeserializer, TypeSerializer
 from botocore.config import Config
 from opensearchpy import OpenSearch, Urllib3AWSV4SignerAuth, Urllib3HttpConnection
+
+DYNAMODB_CONNECT_TIMEOUT = 0.250
+DYNAMODB_READ_TIMEOUT = 0.100
+DYNAMODB_CALL_TIMEOUT = DYNAMODB_CONNECT_TIMEOUT + DYNAMODB_READ_TIMEOUT
+
+
+def single_attempt_timeout(resource) -> float:
+    """Reserve both connection and read time; retries belong to SearchBudget."""
+    config = resource.meta.client.meta.config
+    retries = config.retries or {}
+    attempts = retries.get("total_max_attempts", retries.get("max_attempts", -1) + 1)
+    if attempts != 1:
+        raise ValueError("Catalog SDK retries must be disabled")
+    timeouts = (config.connect_timeout, config.read_timeout)
+    if any(
+        type(value) not in (int, float) or not math.isfinite(value) or value <= 0
+        for value in timeouts
+    ):
+        raise ValueError("Catalog connection/read timeouts must be positive and finite")
+    return sum(timeouts)
 
 
 def attribute_map(value: dict) -> dict:
@@ -60,7 +81,10 @@ def dynamodb_resource(session: boto3.Session, *, background=False) -> DynamoRead
     return DynamoReads(session.client(
         "dynamodb",
         config=Config(
-            connect_timeout=1 if background else 0.050, read_timeout=5 if background else 0.100,
+            # Concurrent graph nodes open new TLS connections even after one
+            # connection has warmed up. 50ms failed in the native runtime.
+            connect_timeout=1 if background else DYNAMODB_CONNECT_TIMEOUT,
+            read_timeout=5 if background else DYNAMODB_READ_TIMEOUT,
             retries={"total_max_attempts": 3 if background else 1, "mode": "standard"},
             max_pool_connections=16,
         ),

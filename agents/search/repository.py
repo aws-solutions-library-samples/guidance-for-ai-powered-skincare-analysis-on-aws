@@ -1,10 +1,10 @@
 """Bounded strongly consistent canonical reads; unprocessed keys are never absent."""
 
-import math
 from decimal import Decimal
 from typing import Any, Protocol
 
 from .budget import SearchBudget
+from .clients import DYNAMODB_CALL_TIMEOUT, single_attempt_timeout
 from .contracts import CanonicalProduct
 from .errors import InvalidSearchResponse, SearchUnavailable
 
@@ -34,21 +34,12 @@ class CanonicalProductRepository:
     ) -> None:
         if not table_name or not catalog_id:
             raise ValueError("Canonical table and catalog ID are required")
-        config = resource.meta.client.meta.config
-        retries = config.retries or {}
-        attempts = retries.get("total_max_attempts", retries.get("max_attempts", -1) + 1)
-        if attempts != 1:
-            raise ValueError("Canonical SDK retries must be disabled")
-        timeouts = (config.connect_timeout, config.read_timeout)
-        if any(
-            not isinstance(value, (int, float)) or not math.isfinite(value) or value <= 0
-            for value in timeouts
-        ) or sum(timeouts) > 0.150 + 1e-9:
-            raise ValueError("Canonical connection/read timeout sum must be at most 150ms")
+        self.call_timeout = single_attempt_timeout(resource)
+        if self.call_timeout > DYNAMODB_CALL_TIMEOUT + 1e-9:
+            raise ValueError("Canonical connection/read timeout sum must be at most 350ms")
         self.resource = resource
         self.table_name = table_name
         self.catalog_id = catalog_id
-        self.call_timeout = sum(timeouts)
 
     def get_by_ids(
         self, product_ids: tuple[str, ...], budget: SearchBudget,

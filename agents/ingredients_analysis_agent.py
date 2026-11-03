@@ -7,7 +7,7 @@ step data + user profile as input text from graph dependency propagation.
 
 from strands import Agent
 
-from config import get_fast_model, load_prompt
+from config import get_ingredient_model, load_prompt
 
 from .models import IngredientsAnalysisOutput
 from .tools import get_available_ingredients_for_step, resolve_ingredient_names
@@ -28,7 +28,7 @@ def create_ingredients_agent(step_name: str) -> Agent:
     system_prompt = f"{base_prompt}\n\nYOUR ASSIGNED STEP: {step_name}\nYou MUST use '{step_name}' as the step_name in your output."
 
     return Agent(
-        model=get_fast_model(),
+        model=get_ingredient_model(),
         system_prompt=system_prompt,
         tools=[get_available_ingredients_for_step, resolve_ingredient_names],
         callback_handler=None,

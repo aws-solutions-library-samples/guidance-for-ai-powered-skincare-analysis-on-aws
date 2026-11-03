@@ -95,6 +95,6 @@ def readiness(**changes):
 def dynamo_resource():
     resource = Mock()
     resource.meta.client.meta.config = SimpleNamespace(
-        retries={"total_max_attempts": 1}, connect_timeout=0.050, read_timeout=0.100,
+        retries={"total_max_attempts": 1}, connect_timeout=0.250, read_timeout=0.100,
     )
     return resource
