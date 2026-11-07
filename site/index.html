@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Guidance for AI-Powered Skincare Analysis on AWS</title>
+  <meta name="description" content="Deploy a multi-agent application that turns one to three skin photos into a personalized skincare routine built from your own product catalog.">
+  <meta property="og:title" content="Guidance for AI-Powered Skincare Analysis on AWS">
+  <meta property="og:description" content="Turn skin photos into a skincare routine built from your own catalog, with agents on Amazon Bedrock AgentCore.">
+  <meta property="og:type" content="website">
+  <link rel="preload" href="fonts/HankenGrotesk-Variable.woff2" as="font" type="font/woff2" crossorigin>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <header class="top">
+    <span class="brand">Guidance for AWS</span>
+    <a href="https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws">Source on GitHub</a>
+  </header>
+
+  <main id="main">
+    <section class="hero" aria-labelledby="title">
+      <div class="hero-text">
+        <h1 id="title">Turn skin photos into a routine built from your own catalog.</h1>
+        <p class="lede">A user uploads one to three skin photos. Agents on Amazon Bedrock AgentCore analyze the skin, plan the routine and choose ingredients. A search over your own catalog then picks the matching products, and the routine streams back as each step completes.</p>
+        <div class="actions">
+          <a class="button primary" href="https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws#deployment-steps">Deploy the Guidance</a>
+          <a class="button" href="https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws">View the source</a>
+        </div>
+      </div>
+
+      <figure class="shelf">
+        <ul class="shelf-row">
+          <li style="--i:0"><img src="assets/products/cleanser.webp" alt="" width="640" height="640"><span>Cleanser</span></li>
+          <li style="--i:1"><img src="assets/products/toner.webp" alt="" width="640" height="640"><span>Toner</span></li>
+          <li style="--i:2"><img src="assets/products/serum.webp" alt="" width="640" height="640"><span>Serum</span></li>
+          <li style="--i:3"><img src="assets/products/exfoliator.webp" alt="" width="640" height="640"><span>Exfoliator</span></li>
+          <li style="--i:4"><img src="assets/products/moisturiser.webp" alt="" width="640" height="640"><span>Moisturiser</span></li>
+          <li style="--i:5"><img src="assets/products/sunscreen.webp" alt="" width="640" height="640"><span>Sunscreen</span></li>
+        </ul>
+        <figcaption>The six routine categories in the demo catalog. Each routine uses two to eight steps, with up to three products per step. Images are illustrations, not real products.</figcaption>
+      </figure>
+    </section>
+
+    <section class="benefits" aria-labelledby="benefits-title">
+      <h2 id="benefits-title">What you get</h2>
+      <div class="benefit-grid">
+        <article>
+          <h3>Personal routines at scale</h3>
+          <p>Agents analyze the skin, plan the steps and choose ingredients in parallel. Results stream to the browser as each agent finishes, so customers get consultation-style advice without a one-to-one session.</p>
+        </article>
+        <article>
+          <h3>Products you actually carry</h3>
+          <p>Products come from a search over your catalog, not from the model. Amazon OpenSearch Service ranks exact ingredient matches, and each pick is rechecked against the catalog records in Amazon DynamoDB.</p>
+        </article>
+        <article>
+          <h3>Photos that are never stored</h3>
+          <p>Amazon Bedrock Guardrails and output validation screen every model call. AWS WAF, Amazon Cognito sign-in, per-user limits and a private network for the agents reduce abuse and unauthorized access.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="how" aria-labelledby="how-title">
+      <h2 id="how-title">How it works</h2>
+      <figure class="diagram">
+        <a href="assets/architecture.png"><img src="assets/architecture.png" alt="Reference architecture: web application, authentication, streaming Lambda proxy, AgentCore agents and Amazon OpenSearch Service in a private VPC, catalog ingestion, and build pipeline. The numbered steps below follow the diagram." width="4000" height="2250" loading="lazy"></a>
+        <figcaption><a href="assets/architecture.png">Open the diagram at full size</a></figcaption>
+      </figure>
+      <ol class="steps">
+        <li><h3>Sign in and upload</h3><p>Amazon CloudFront serves the React app from a private Amazon S3 bucket behind AWS WAF. The user submits up to three photos of 1 MiB each.</p></li>
+        <li><h3>Authenticate</h3><p>Amazon Cognito signs the user in. Amazon API Gateway validates the ID token, and a second AWS WAF web ACL only admits traffic coming through CloudFront.</p></li>
+        <li><h3>Control access to the agents</h3><p>A streaming AWS Lambda proxy enforces per-user limits in Amazon DynamoDB and invokes Amazon Bedrock AgentCore Runtime. Photos are not stored.</p></li>
+        <li><h3>Analyze and plan</h3><p>In a private VPC, a skin-analysis agent uses an Amazon Bedrock multimodal model to build a skin profile. A planning agent chooses two to eight routine steps.</p></li>
+        <li><h3>Select products</h3><p>An ingredient agent picks ingredients for each step in parallel. Amazon OpenSearch Service ranks exact matches within your constraints, and each pick is rechecked in DynamoDB.</p></li>
+        <li><h3>Explain and assemble</h3><p>Agents explain the chosen products, screened by Amazon Bedrock Guardrails. The routine streams back to the browser as server-sent events.</p></li>
+        <li><h3>Keep the catalog current</h3><p>Product updates go to DynamoDB. A DynamoDB stream and Amazon EventBridge schedules drive Lambda workers that keep the search index in sync.</p></li>
+        <li><h3>Build and monitor</h3><p>AWS CodeBuild builds the agent image and pushes it to Amazon ECR. Amazon CloudWatch collects API, WAF, build and runtime logs.</p></li>
+      </ol>
+    </section>
+
+    <section class="deploy" aria-labelledby="deploy-title">
+      <h2 id="deploy-title">Deploy it in your account</h2>
+      <div class="actions">
+        <a class="button primary" href="https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws#deployment-steps">Read the deployment steps</a>
+        <!-- TODO: temporary link; replace once the Guidance page is published -->
+        <a class="button" href="https://aws.amazon.com/solutions/guidance/ai-powered-skincare-analysis-on-aws/">See the Guidance on AWS</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <p>Released under the <a href="https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws/blob/main/LICENSE">MIT-0 license</a>. You are responsible for the cost of the AWS services you use. This Guidance is for informational purposes only; read the <a href="https://github.com/aws-solutions-library-samples/guidance-for-ai-powered-skincare-analysis-on-aws#notices">notices</a> before deploying.</p>
+    <p>Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.</p>
+  </footer>
+</body>
+</html>

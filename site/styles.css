@@ -1,0 +1,208 @@
+/* Hanken Grotesk, SIL Open Font License 1.1 (fonts/OFL.txt) */
+@font-face {
+  font-family: "Hanken Grotesk";
+  src: url("fonts/HankenGrotesk-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-display: swap;
+}
+
+:root {
+  /* paper matches the product-photo backdrop so the shelf reads as one surface */
+  --paper: #f4f1ee;
+  --ink: #23302b;
+  --ink-soft: #4d5a54;
+  --sage: #7f9a84;
+  --rose: #c38e93;
+  --line: #d8d3cc;
+  --measure: 34rem;
+  --gutter: clamp(1.25rem, 4vw, 3rem);
+}
+
+*,
+*::before,
+*::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 1.0625rem/1.6 "Hanken Grotesk", system-ui, sans-serif;
+  font-kerning: normal;
+}
+
+img { max-width: 100%; height: auto; display: block; }
+
+a { color: inherit; text-decoration-color: var(--sage); text-underline-offset: 0.2em; }
+a:hover { text-decoration-color: currentColor; }
+:focus-visible { outline: 3px solid var(--rose); outline-offset: 3px; }
+
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: var(--gutter); top: 0.75rem; background: var(--ink); color: var(--paper); padding: 0.5rem 0.75rem; }
+
+h1, h2, h3 { margin: 0; font-weight: 600; line-height: 1.15; }
+h2 { font-size: clamp(1.6rem, 3vw, 2.1rem); letter-spacing: -0.015em; margin-bottom: 2rem; }
+h3 { font-size: 1.125rem; letter-spacing: -0.005em; }
+p { margin: 0; }
+
+.top,
+main > section,
+.foot {
+  max-width: 76rem;
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-block: 1.25rem;
+  font-size: 0.95rem;
+}
+.brand { font-weight: 600; }
+
+/* hero */
+.hero { padding-block: clamp(2.5rem, 7vw, 5.5rem) 0; }
+
+.hero-text { max-width: 46rem; }
+
+h1 {
+  font-size: clamp(2.4rem, 6.2vw, 4.6rem);
+  font-weight: 560;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+}
+
+.lede {
+  max-width: var(--measure);
+  margin-top: 1.5rem;
+  font-size: 1.15rem;
+  color: var(--ink-soft);
+}
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-top: 2rem; }
+
+.button {
+  display: inline-block;
+  padding: 0.8rem 1.3rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 999px;
+  font-weight: 600;
+  text-decoration: none;
+}
+.button.primary { background: var(--ink); color: var(--paper); }
+.button:hover { background: var(--sage); border-color: var(--sage); color: var(--paper); }
+
+.shelf { margin: clamp(2.5rem, 6vw, 4rem) 0 0; }
+
+.shelf-row {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  border-bottom: 2px solid var(--ink);
+}
+
+.shelf-row li { text-align: center; }
+.shelf-row img {
+  width: 100%;
+  /* fade tile edges so the photo backdrops melt into the paper */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 14%, #000 86%, transparent), linear-gradient(to bottom, transparent, #000 10%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, transparent, #000 14%, #000 86%, transparent), linear-gradient(to bottom, transparent, #000 10%);
+  mask-composite: intersect;
+}
+.shelf-row span {
+  display: block;
+  padding-block: 0.6rem 0.9rem;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+/* the one load moment: products set onto the shelf in routine order */
+@media (prefers-reduced-motion: no-preference) {
+  .shelf-row img {
+    animation: place 700ms cubic-bezier(.2, .7, .2, 1) both;
+    animation-delay: calc(var(--i) * 110ms + 150ms);
+  }
+  @keyframes place {
+    from { opacity: 0; transform: translateY(18%); }
+    to { opacity: 1; transform: none; }
+  }
+}
+
+.shelf figcaption {
+  max-width: var(--measure);
+  margin-top: 0.9rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+/* sections */
+.benefits,
+.how,
+.deploy { padding-block: clamp(4rem, 9vw, 7rem) 0; }
+
+.benefit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: clamp(1.5rem, 4vw, 3.5rem);
+}
+.benefit-grid article { border-top: 2px solid var(--sage); padding-top: 1.1rem; }
+.benefit-grid p { margin-top: 0.6rem; color: var(--ink-soft); }
+
+.diagram { margin: 0; background: #fff; padding: clamp(0.5rem, 1.5vw, 1rem); }
+.diagram figcaption { margin-top: 0.6rem; font-size: 0.9rem; }
+
+.steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 3rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  column-gap: clamp(2rem, 5vw, 4.5rem);
+  row-gap: 2rem;
+}
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 2.25rem 1fr;
+  column-gap: 0.75rem;
+}
+/* numbers match the badges on the diagram */
+.steps li::before {
+  content: counter(step);
+  grid-row: span 2;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  background: var(--ink);
+  color: var(--paper);
+  display: grid;
+  place-items: center;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+.steps p { margin-top: 0.3rem; color: var(--ink-soft); max-width: var(--measure); }
+
+
+.foot {
+  margin-top: clamp(4rem, 9vw, 7rem);
+  padding-block: 2rem 3rem;
+  /* rule spans the content column, not the padding */
+  background: linear-gradient(var(--line), var(--line)) var(--gutter) 0 / calc(100% - 2 * var(--gutter)) 1px no-repeat;
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+}
+.foot p { max-width: 46rem; }
+.foot p + p { margin-top: 0.5rem; }
+
+@media (max-width: 52rem) {
+  .shelf-row { grid-template-columns: repeat(3, 1fr); }
+  .benefit-grid,
+  .steps { grid-template-columns: minmax(0, 1fr); }
+}
